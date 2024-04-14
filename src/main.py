@@ -16,6 +16,7 @@ def greedy_policy(q_table: np.ndarray, state: tuple[int, int]) -> int:
 def epsilon_greedy_policy(
     q_table: np.ndarray, state: tuple[int, int], epsilon: float
 ) -> int:
+    """Epsilon-greedy Action Selection"""
     if np.random.uniform(0, 1) < epsilon:
         return np.random.choice(len(env.actions))
     else:
@@ -24,16 +25,33 @@ def epsilon_greedy_policy(
 
 n_episodes = 10000
 learning_rate = 0.9
-gamma = 0.9
+gamma = 0.9  # Discount factor
 epsilon = 0.1
+min_epsilon = 0.01
+max_epsilon = 1
+decay_rate = 0.001
 max_steps = 100
 
 
 def train(
-    q_table: np.ndarray, n_episodes: int, epsilon: float, learning_rate: float, gamma
+    q_table: np.ndarray,
+    n_episodes: int,
+    epsilon: float,
+    max_epsilon: float,
+    min_epsilon: float,
+    decay_rate: float,
+    decay_epsilon: bool,
+    learning_rate: float,
+    gamma,
 ) -> np.ndarray:
     for episode in tqdm(range(n_episodes), total=n_episodes):
         state = env.reset()
+
+        epsilon = (
+            max_epsilon - (max_epsilon - min_epsilon) * np.exp(-decay_rate * episode)
+            if decay_epsilon
+            else epsilon
+        )
 
         # terminated = False
         # while not terminated:
@@ -42,6 +60,7 @@ def train(
 
             next_state, reward, terminated = env.step(action)
 
+            # The Bellman Equation
             q_table[state][action] += learning_rate * (
                 reward + gamma * np.max(q_table[next_state]) - q_table[state][action]
             )
@@ -55,7 +74,17 @@ def train(
 
 
 q_table = np.zeros((env.shape[0], env.shape[1], len(env.actions)))
-q_table = train(q_table, n_episodes, epsilon, learning_rate, gamma)
+q_table = train(
+    q_table,
+    n_episodes,
+    epsilon,
+    max_epsilon,
+    min_epsilon,
+    decay_rate,
+    False,
+    learning_rate,
+    gamma,
+)
 
 
 def test(q_table: np.ndarray) -> tuple[float, list[tuple[int, int]]]:
