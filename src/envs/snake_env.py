@@ -28,7 +28,11 @@ class SnakeGameEnvironment:
             "red": (255, 0, 0),
             "green": (0, 255, 0),
             "blue": (0, 0, 255),
-            "yellow": (255, 255, 0)
+            "yellow": (255, 255, 0),
+            "beige": (255, 245, 224),
+            "light green": (65, 176, 110),
+            "purple": (210, 0, 98),
+            "navy": (20, 30, 70),
         }
 
         self.score = 0
@@ -184,13 +188,13 @@ class SnakeGameEnvironment:
             self.head = (self.head[0], self.head[1] + self.block_size)
 
     def render(self, save_path = None):
-        self.screen.fill(self.colors["white"])
-        pygame.draw.rect(self.screen, self.colors["red"], [self.food[0], self.food[1], self.block_size, self.block_size])
+        self.screen.fill(self.colors["beige"])
+        pygame.draw.rect(self.screen, self.colors["purple"], [self.food[0], self.food[1], self.block_size, self.block_size])
 
         for segment in self.snake:
-            pygame.draw.rect(self.screen, self.colors["green"], [segment[0], segment[1], self.block_size, self.block_size])
+            pygame.draw.rect(self.screen, self.colors["light green"], [segment[0], segment[1], self.block_size, self.block_size])
 
-        value = self.font.render("Score: " + str(self.score), True, self.colors["black"])
+        value = self.font.render("Score: " + str(self.score), True, self.colors["navy"])
         self.screen.blit(value, [0, 0])
         pygame.display.flip()
 

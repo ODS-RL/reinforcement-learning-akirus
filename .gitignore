@@ -160,6 +160,6 @@ cython_debug/
 #.idea/
 
 test.py
-images/
-saves/
-!render.gif
+images/*
+saves/*
+!images/*.gif
