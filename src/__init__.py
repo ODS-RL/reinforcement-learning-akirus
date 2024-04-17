@@ -1,1 +1,2 @@
-from .envs import *
+from .envs import SimpleEnvironment as SimpleEnvironment, SnakeGameEnvironment as SnakeGameEnvironment
+from .trainers import *

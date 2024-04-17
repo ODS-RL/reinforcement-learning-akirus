@@ -1,9 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from typing import Union
+from src.envs.base_env import BaseEnvironment
 
-
-class SimpleEnvironment:
+class SimpleEnvironment(BaseEnvironment):
     def __init__(self) -> None:
         self.shape = (10, 10)
 

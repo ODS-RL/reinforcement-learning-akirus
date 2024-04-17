@@ -1,8 +1,8 @@
 # Run with `python3 -m examples.train_simple_ql`
 import os
 import numpy as np
-from tqdm import tqdm
-from src.envs import SimpleEnvironment
+from src import SimpleEnvironment
+from src import QLearningTrainer
 from PIL import Image
 
 # Inspired by https://huggingface.co/learn/deep-rl-course/unit2/hands-on
@@ -11,19 +11,7 @@ env = SimpleEnvironment()
 print(f"Rewards space:\n{env.rewards}")
 
 
-
-def greedy_policy(q_table: np.ndarray, state: tuple[int, int]) -> int:
-    return np.argmax(q_table[state])
-
-def epsilon_greedy_policy(
-    q_table: np.ndarray, state: tuple[int, int], epsilon: float
-) -> int:
-    """Epsilon-greedy Action Selection"""
-    if np.random.uniform(0, 1) < epsilon:
-        return np.random.choice(len(env.actions))
-    else:
-        return greedy_policy(q_table, state)
-
+trainer = QLearningTrainer(env)
 
 n_episodes = 10000
 learning_rate = 0.9
@@ -35,46 +23,8 @@ decay_rate = 0.001
 max_steps = 100
 
 
-def train(
-    q_table: np.ndarray,
-    n_episodes: int,
-    epsilon: float,
-    max_epsilon: float,
-    min_epsilon: float,
-    decay_rate: float,
-    decay_epsilon: bool,
-    learning_rate: float,
-    gamma,
-) -> np.ndarray:
-    for episode in tqdm(range(n_episodes), total=n_episodes):
-        state = env.reset()
-
-        epsilon = (
-            max_epsilon - (max_epsilon - min_epsilon) * np.exp(-decay_rate * episode)
-            if decay_epsilon
-            else epsilon
-        )
-
-        for step in range(max_steps):
-            action = epsilon_greedy_policy(q_table, state, epsilon)
-
-            next_state, reward, terminated = env.step(action)
-
-            # The Bellman Equation
-            q_table[state][action] += learning_rate * (
-                reward + gamma * np.max(q_table[next_state]) - q_table[state][action]
-            )
-
-            state = next_state
-
-            if terminated:
-                break
-
-    return q_table
-
-
 q_table = np.zeros((env.shape[0], env.shape[1], len(env.actions)))
-q_table = train(
+q_table = trainer.train(
     q_table,
     n_episodes,
     epsilon,
@@ -101,7 +51,7 @@ def test(q_table: np.ndarray) -> tuple[float, list[tuple[int, int]]]:
     while not terminated:
         env.render(show=False, save_path=f"images/render-{i}.png")
 
-        action = greedy_policy(q_table, state)
+        action = trainer.greedy_policy(q_table, state)
         state, reward, terminated = env.step(action)
 
         total_reward += reward
