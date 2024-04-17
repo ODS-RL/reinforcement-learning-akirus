@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "q-learning"
+name = "reinforcement_learning"
 version = "0.1.0"
 description = ""
 authors = ["Rustam Akimov <akirusprod@gmail.com>"]
@@ -11,6 +11,7 @@ numpy = "^1.26.4"
 tqdm = "^4.66.2"
 matplotlib = "^3.8.4"
 pygame = "^2.5.2"
+torch = "^2.2.2"
 
 
 [build-system]

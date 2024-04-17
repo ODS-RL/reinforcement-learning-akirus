@@ -135,7 +135,7 @@ class SnakeGameEnvironment:
         else:
             self.snake.pop(0)
 
-        self.draw()
+        self.render()
         self.clock.tick(self.speed)
 
         return self.state, reward, terminated
@@ -183,7 +183,7 @@ class SnakeGameEnvironment:
         elif self.direction == "down":
             self.head = (self.head[0], self.head[1] + self.block_size)
 
-    def draw(self):
+    def render(self, save_path = None):
         self.screen.fill(self.colors["white"])
         pygame.draw.rect(self.screen, self.colors["red"], [self.food[0], self.food[1], self.block_size, self.block_size])
 
@@ -193,6 +193,9 @@ class SnakeGameEnvironment:
         value = self.font.render("Score: " + str(self.score), True, self.colors["black"])
         self.screen.blit(value, [0, 0])
         pygame.display.flip()
+
+        if save_path is not None:
+            pygame.image.save(self.screen, save_path)
 
 
 class SnakeGame(SnakeGameEnvironment):

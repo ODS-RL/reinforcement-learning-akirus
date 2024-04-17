@@ -1,7 +1,5 @@
-import sys, os
-from pathlib import Path
-sys.path[0] = str(Path(sys.path[0]).parent)
-
+# Run with `python3 -m examples.train_snake_ql`
+import os
 import numpy as np
 from tqdm import tqdm
 from src.envs import SnakeGameEnvironment
@@ -28,7 +26,7 @@ def epsilon_greedy_policy(
     
 
 
-n_episodes = 10000
+n_episodes = 1000
 learning_rate = 0.01
 gamma = 0.95  # Discount factor
 epsilon = 0.1
@@ -104,7 +102,7 @@ def test(q_table):
     while not terminated:
         action = greedy_policy(q_table, state)
         state, reward, terminated = env.step(action)
-        env.draw()
+        env.render()
 
 
 test(q_table)

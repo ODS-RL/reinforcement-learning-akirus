@@ -4,4 +4,4 @@
 
 
 ## Description
-This is an implementation of the Q-Learning algorithm in Python.
+This is an implementation of the Q-Learning and Deep Q-Learning Network algorithms in Python.

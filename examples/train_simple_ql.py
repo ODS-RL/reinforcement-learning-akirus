@@ -1,7 +1,5 @@
-import sys, os
-from pathlib import Path
-sys.path[0] = str(Path(sys.path[0]).parent)
-
+# Run with `python3 -m examples.train_simple_ql`
+import os
 import numpy as np
 from tqdm import tqdm
 from src.envs import SimpleEnvironment
