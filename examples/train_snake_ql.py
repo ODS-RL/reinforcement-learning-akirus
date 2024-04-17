@@ -1,17 +1,21 @@
+import sys, os
+from pathlib import Path
+sys.path[0] = str(Path(sys.path[0]).parent)
+
 import numpy as np
 from tqdm import tqdm
-from environment import Environment
-from PIL import Image
+from src.envs import SnakeGameEnvironment
 
-# Inspired by https://huggingface.co/learn/deep-rl-course/unit2/hands-on
 
-env = Environment()
-print(f"Rewards space:\n{env.rewards}")
-
+env = SnakeGameEnvironment(
+    width=200,
+    height=200,
+    block_size=20,
+    speed=10000
+)
 
 def greedy_policy(q_table: np.ndarray, state: tuple[int, int]) -> int:
     return np.argmax(q_table[state])
-
 
 def epsilon_greedy_policy(
     q_table: np.ndarray, state: tuple[int, int], epsilon: float
@@ -21,16 +25,16 @@ def epsilon_greedy_policy(
         return np.random.choice(len(env.actions))
     else:
         return greedy_policy(q_table, state)
+    
 
 
 n_episodes = 10000
-learning_rate = 0.9
-gamma = 0.9  # Discount factor
+learning_rate = 0.01
+gamma = 0.95  # Discount factor
 epsilon = 0.1
 min_epsilon = 0.01
 max_epsilon = 1
 decay_rate = 0.001
-max_steps = 100
 
 
 def train(
@@ -44,6 +48,7 @@ def train(
     learning_rate: float,
     gamma,
 ) -> np.ndarray:
+    max_score = 0
     for episode in tqdm(range(n_episodes), total=n_episodes):
         state = env.reset()
 
@@ -53,27 +58,28 @@ def train(
             else epsilon
         )
 
-        # terminated = False
-        # while not terminated:
-        for step in range(max_steps):
+        while True:
             action = epsilon_greedy_policy(q_table, state, epsilon)
 
             next_state, reward, terminated = env.step(action)
-
+            max_score = max(max_score, env.score)
+            
             # The Bellman Equation
             q_table[state][action] += learning_rate * (
                 reward + gamma * np.max(q_table[next_state]) - q_table[state][action]
             )
 
-            state = next_state
-
             if terminated:
                 break
 
+            state = next_state
+
+    print(f"Max Score: {max_score}")
     return q_table
 
 
-q_table = np.zeros((env.shape[0], env.shape[1], len(env.actions)))
+q_table = np.zeros((2,) * len(env.state) + (len(env.actions),))
+
 q_table = train(
     q_table,
     n_episodes,
@@ -86,40 +92,19 @@ q_table = train(
     gamma,
 )
 
+if not os.path.exists("saves"):
+    os.makedirs("saves")
+with open('saves/snake_ql.npy', 'wb') as f:
+    np.save(f, q_table)
 
-def test(q_table: np.ndarray) -> tuple[float, list[tuple[int, int]]]:
+def test(q_table):
+    env.speed = 10
     state = env.reset()
     terminated = False
-    total_reward = 0
-    states = []
-
-    i = 0
     while not terminated:
-        env.render(show=False, save_path=f"images/render-{i}.png")
-
         action = greedy_policy(q_table, state)
         state, reward, terminated = env.step(action)
-
-        total_reward += reward
-        states.append(state)
-
-        i += 1
-
-    return total_reward, states
+        env.draw()
 
 
-total_reward, states = test(q_table)
-
-print(f"Total reward: {total_reward}")
-print(f"States: {states}")
-
-# Save render as gif
-frames = [Image.open(f"images/render-{i}.png") for i in range(len(states))]
-frames[0].save(
-    "images/render.gif",
-    format="GIF",
-    append_images=frames[1:],
-    save_all=True,
-    duration=100,
-    loop=0,
-)
+test(q_table)

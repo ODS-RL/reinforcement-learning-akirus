@@ -3,15 +3,15 @@ import matplotlib.pyplot as plt
 from typing import Union
 
 
-class Environment:
+class SimpleEnvironment:
     def __init__(self) -> None:
         self.shape = (10, 10)
 
         self.rewards = np.full(self.shape, -1)
-        # The goal is marked with a 100
+        # The goal is marked with 100
         self.rewards[-1, -1] = 100
 
-        # The walls are marked with - 100
+        # The walls are marked with -100
         self.rewards[2:4, 2:4] = -100
         self.rewards[5:8, 5:8] = -100
         self.rewards[8:10, 1:3] = -100

@@ -10,6 +10,7 @@ python = "^3.10"
 numpy = "^1.26.4"
 tqdm = "^4.66.2"
 matplotlib = "^3.8.4"
+pygame = "^2.5.2"
 
 
 [build-system]
