@@ -1,4 +1,4 @@
-# Run with `python3 -m examples.train_snake_dqn`
+# Run with `python3 -m examples.train_snake_dqn
 import os
 import torch
 import torch.nn as nn
@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from torch.optim import Adam
 from torch.nn import MSELoss
 from src import SnakeGameEnvironment
-from src import DQNTrainer
+from src import DQNTrainer, ReplayMemory
 
 env = SnakeGameEnvironment(
     width=200,
@@ -15,12 +15,12 @@ env = SnakeGameEnvironment(
     speed=10000
 )
 
-
-trainer = DQNTrainer(env)
+trainer = DQNTrainer(env) # Without memory
+# trainer = DQNTrainer(env, memory=ReplayMemory(memory_size=256, batch_size=32)) # With memory (uncomment this line)
 
 n_episodes = 300
-learning_rate = 0.01#0.005
-gamma = 0.95  # Discount factor
+learning_rate = 0.005#0.005
+gamma = 0.9  # Discount factor
 epsilon = 0.1
 min_epsilon = 0.01
 max_epsilon = 1
