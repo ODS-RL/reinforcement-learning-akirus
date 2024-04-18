@@ -322,7 +322,7 @@ class DDQNTrainer:
 
         return loss
 
-class SarsaTrainer:
+class SARSATrainer:
     def __init__(self, env: BaseEnvironment) -> None:
         self.env = env
 
@@ -372,7 +372,6 @@ class SarsaTrainer:
                 q_table[state][action] += learning_rate * (
                     reward + gamma * q_table[next_state][next_action] - q_table[state][action]
                 )
-
 
                 state = next_state
 

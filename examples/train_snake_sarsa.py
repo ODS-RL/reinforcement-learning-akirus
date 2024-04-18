@@ -2,7 +2,7 @@
 import os
 import numpy as np
 from src import SnakeGameEnvironment
-from src import QLearningTrainer
+from src import SARSATrainer
 
 env = SnakeGameEnvironment(
     width=200,
@@ -11,7 +11,7 @@ env = SnakeGameEnvironment(
     speed=10000
 )
     
-trainer = QLearningTrainer(env)
+trainer = SARSATrainer(env)
 
 n_episodes = 1000
 learning_rate = 0.01
@@ -38,7 +38,7 @@ q_table = trainer.train(
 
 if not os.path.exists("saves"):
     os.makedirs("saves")
-with open('saves/snake_ql.npy', 'wb') as f:
+with open('saves/snake_sarsa.npy', 'wb') as f:
     np.save(f, q_table)
 
 def test(q_table):
