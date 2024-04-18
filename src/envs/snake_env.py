@@ -5,7 +5,6 @@ from src.envs.base_env import BaseEnvironment
 # Additional resources
 # https://cs230.stanford.edu/projects_fall_2021/reports/103085287.pdf
 # https://ceasjournal.com/index.php/CEAS/article/download/13/10)
-# https://arxiv.org/pdf/1509.06461.pdf
 
 class SnakeGameEnvironment(BaseEnvironment):
 

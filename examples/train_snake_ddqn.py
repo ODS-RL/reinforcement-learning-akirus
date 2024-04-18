@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from torch.optim import Adam
 from torch.nn import MSELoss
 from src import SnakeGameEnvironment
-from src import DDQNTrainer
+from src import DDQNTrainer, ReplayMemory
 
 env = SnakeGameEnvironment(
     width=200,
@@ -15,8 +15,8 @@ env = SnakeGameEnvironment(
     speed=10000
 )
 
-
-trainer = DDQNTrainer(env, mem_size=256, batch_size=32)
+# trainer = DDQNTrainer(env) # Without memory(uncomment this line)
+trainer = DDQNTrainer(env, memory=ReplayMemory(memory_size=256, batch_size=8)) # With memory 
 
 n_episodes = 300
 learning_rate = 0.01#0.005

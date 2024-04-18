@@ -1,4 +1,4 @@
-# Run with `python3 -m examples.train_snake_dqn
+# Run with `python3 -m examples.train_snake_dqn`
 import os
 import torch
 import torch.nn as nn
@@ -16,7 +16,7 @@ env = SnakeGameEnvironment(
 )
 
 trainer = DQNTrainer(env) # Without memory
-# trainer = DQNTrainer(env, memory=ReplayMemory(memory_size=256, batch_size=32)) # With memory (uncomment this line)
+# trainer = DQNTrainer(env, memory=ReplayMemory(memory_size=256, batch_size=8)) # With memory (uncomment this line)
 
 n_episodes = 300
 learning_rate = 0.005#0.005

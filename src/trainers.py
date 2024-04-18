@@ -200,11 +200,10 @@ class DQNTrainer:
 
 class DDQNTrainer:
     """Double DQN Trainer"""
-    def __init__(self, env: BaseEnvironment, mem_size: int, batch_size: int) -> None:
+    # https://arxiv.org/pdf/1509.06461.pdf
+    def __init__(self, env: BaseEnvironment, memory: ReplayMemory = None) -> None:
         self.env = env
-        self.memory_size = mem_size
-        self.batch_size = batch_size
-        self.memory = deque(maxlen=mem_size)
+        self.memory = memory
 
     def greedy_policy(self, model, state: tuple[int, int]) -> int:
         state = torch.tensor(state, dtype=torch.float)
@@ -255,23 +254,36 @@ class DDQNTrainer:
 
                 next_state, reward, terminated = self.env.step(action)
 
-                self.memory.append((state, action, next_state, reward, terminated))
+                if self.memory is not None:
+                    self.memory.add(state, action, next_state, reward, terminated)
 
-                state = next_state
+                    if len(self.memory) > self.memory.batch_size:
+                        transitions = self.memory.sample()
 
-                if len(self.memory) > self.batch_size:
-                    transitions = random.sample(self.memory, self.batch_size)
+                        for transition in transitions:
+                            loss = self._train(online_model, target_model, optimizer, criterion, gamma, transition)
 
-                    for transition in transitions:
-                        loss = self._train(online_model, target_model, optimizer, criterion, gamma, transition)
+                            episode_losses.append(loss.item())
 
-                        episode_losses.append(loss.item())
+                else:
+                    loss = self._train(
+                        online_model=online_model,
+                        target_model=target_model,
+                        optimizer=optimizer,
+                        criterion=criterion,
+                        gamma=gamma,
+                        transition=(state, action, next_state, reward, terminated),
+                    )
+
+                    episode_losses.append(loss.item())
 
                 target_weights = target_model.state_dict()
                 policy_weights = online_model.state_dict()
                 for key in policy_weights:
                     target_weights[key] = policy_weights[key]*tau + target_weights[key]*(1-tau)
                 target_model.load_state_dict(target_weights)
+
+                state = next_state
 
                 if terminated or step == max_steps:
                     break
