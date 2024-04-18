@@ -35,7 +35,7 @@ class QLearningTrainer:
         decay_rate: float,
         decay_epsilon: bool,
         learning_rate: float,
-        gamma,
+        gamma: float,
         max_steps: int = None,
     ) -> np.ndarray:
         for episode in tqdm(range(n_episodes), total=n_episodes):
@@ -114,7 +114,7 @@ class DQNTrainer:
         min_epsilon: float,
         decay_rate: float,
         decay_epsilon: bool,
-        gamma,
+        gamma: float,
         max_steps: int = None,
     ) -> np.ndarray:
         tqdm_range = tqdm(range(n_episodes), total=n_episodes)
@@ -230,7 +230,7 @@ class DDQNTrainer:
         min_epsilon: float,
         decay_rate: float,
         decay_epsilon: bool,
-        gamma,
+        gamma: float,
         tau = 0.005,
         max_steps: int = None,
     ) -> np.ndarray:
@@ -322,8 +322,63 @@ class DDQNTrainer:
 
         return loss
 
-class SarsaTrainer: # TODO: Implement this
-    def __init__(self):
-        pass 
+class SarsaTrainer:
+    def __init__(self, env: BaseEnvironment) -> None:
+        self.env = env
+
+    def greedy_policy(self, q_table: np.ndarray, state: tuple[int, int]) -> int:
+        return np.argmax(q_table[state])
+
+    def epsilon_greedy_policy(self,
+        q_table: np.ndarray, state: tuple[int, int], epsilon: float
+    ) -> int:
+        """Epsilon-greedy Action Selection"""
+        if np.random.uniform(0, 1) < epsilon:
+            return np.random.choice(len(self.env.actions))
+        else:
+            return self.greedy_policy(q_table, state)
+
+    def train(
+        self,
+        q_table: np.ndarray,
+        n_episodes: int,
+        epsilon: float,
+        max_epsilon: float,
+        min_epsilon: float,
+        decay_rate: float,
+        decay_epsilon: bool,
+        learning_rate: float,
+        gamma: float,
+        max_steps: int = None,
+    ) -> np.ndarray:
+        for episode in tqdm(range(n_episodes), total=n_episodes):
+            state = self.env.reset()
+
+            epsilon = (
+                max_epsilon - (max_epsilon - min_epsilon) * np.exp(-decay_rate * episode)
+                if decay_epsilon
+                else epsilon
+            )
+
+            step = 0
+            while True:
+                action = self.epsilon_greedy_policy(q_table, state, epsilon)
+
+                next_state, reward, terminated = self.env.step(action)
+
+                # SARSA Update
+                next_action = self.epsilon_greedy_policy(q_table, next_state, epsilon)
+
+                q_table[state][action] += learning_rate * (
+                    reward + gamma * q_table[next_state][next_action] - q_table[state][action]
+                )
 
 
+                state = next_state
+
+                if terminated or step == max_steps:
+                    break
+
+                step += 1
+
+        return q_table

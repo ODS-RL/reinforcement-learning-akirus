@@ -2,7 +2,7 @@
 import os
 import numpy as np
 from src import SnakeGameEnvironment
-from src import QLearningTrainer
+from src import SarsaTrainer
 
 env = SnakeGameEnvironment(
     width=200,
@@ -11,7 +11,7 @@ env = SnakeGameEnvironment(
     speed=10000
 )
     
-trainer = QLearningTrainer(env)
+trainer = SarsaTrainer(env)
 
 n_episodes = 1000
 learning_rate = 0.01
