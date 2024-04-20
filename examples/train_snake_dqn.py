@@ -21,10 +21,9 @@ trainer = DQNTrainer(env) # Without memory
 n_episodes = 300
 learning_rate = 0.005#0.005
 gamma = 0.9  # Discount factor
-epsilon = 0.1
 min_epsilon = 0.01
 max_epsilon = 1
-decay_rate = 0.0005
+decay_rate = 0.5
 
 class Model(nn.Module):
     def __init__(self, input_size, hidden_size, output_size):
@@ -48,11 +47,10 @@ trainer.train(
     optimizer = optimizer,
     criterion = criterion,
     n_episodes = n_episodes,
-    epsilon = epsilon,
     max_epsilon = max_epsilon,
     min_epsilon = min_epsilon,
     decay_rate = decay_rate,
-    decay_epsilon = True,
+    decay_epsilon = "linear",
     gamma = gamma,
 )
 

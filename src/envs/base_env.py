@@ -1,6 +1,7 @@
+import gymnasium as gym
 from typing import Union
 
-class BaseEnvironment:
+class BaseEnvironment(gym.Env):
     def __init__(self) -> None:
         self.state = None
         self.actions = None

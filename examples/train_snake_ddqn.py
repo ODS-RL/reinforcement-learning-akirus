@@ -17,16 +17,15 @@ env = SnakeGameEnvironment(
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-# trainer = DDQNTrainer(env, device) # Without memory(uncomment this line)
+# trainer = DDQNTrainer(env, device = device) # Without memory(uncomment this line)
 trainer = DDQNTrainer(env, memory=ReplayMemory(memory_size=256, batch_size=8), device=device) # With memory 
 
 n_episodes = 300
 learning_rate = 0.01#0.005
 gamma = 0.95  # Discount factor
-epsilon = 0.1
 min_epsilon = 0.01
 max_epsilon = 1
-decay_rate = 0.0005 
+decay_rate = 0.05 
 
 class Model(nn.Module):
     def __init__(self, input_size, hidden_size, output_size):
@@ -53,11 +52,10 @@ scores = trainer.train(
     optimizer = optimizer,
     criterion = criterion,
     n_episodes = n_episodes,
-    epsilon = epsilon,
     max_epsilon = max_epsilon,
     min_epsilon = min_epsilon,
     decay_rate = decay_rate,
-    decay_epsilon = True,
+    decay_epsilon = "exponential",
     gamma = gamma,
 )
 

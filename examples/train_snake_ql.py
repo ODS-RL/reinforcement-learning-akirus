@@ -17,23 +17,15 @@ n_episodes = 1000
 learning_rate = 0.01
 gamma = 0.95  # Discount factor
 epsilon = 0.1
-min_epsilon = 0.01
-max_epsilon = 1
-decay_rate = 0.001
-
 
 q_table = np.zeros((2,) * len(env.state) + (len(env.actions),))
 
 q_table = trainer.train(
-    q_table,
-    n_episodes,
-    epsilon,
-    max_epsilon,
-    min_epsilon,
-    decay_rate,
-    False,
-    learning_rate,
-    gamma,
+    q_table = q_table,
+    n_episodes = n_episodes,
+    epsilon = epsilon,
+    learning_rate = learning_rate,
+    gamma = gamma,
 )
 
 if not os.path.exists("saves"):

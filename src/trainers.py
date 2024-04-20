@@ -8,10 +8,13 @@ from src.envs.base_env import BaseEnvironment
 # https://arxiv.org/pdf/1312.5602.pdf
 # https://arxiv.org/pdf/1509.02971.pdf
 
-
-class QLearningTrainer:
+class BaseTrainer:
     def __init__(self, env: BaseEnvironment) -> None:
         self.env = env
+        self.epsilon_decays = {
+            "exponential": self.exponential_decay,
+            "linear": self.linear_decay
+        }
 
     def greedy_policy(self, q_table: np.ndarray, state: tuple[int, int]) -> int:
         return np.argmax(q_table[state])
@@ -25,28 +28,58 @@ class QLearningTrainer:
             return self.env.action_space.sample()
         else:
             return self.greedy_policy(q_table, state)
+        
+    def exponential_decay(self, step, epsilon_start: float, epsilon_end: float, n_steps: int, decay_rate: int = 1) -> float:
+        assert 1 >= epsilon_start >= epsilon_end >= 0
+        assert 1 >= decay_rate >= 0
+
+        if decay_rate == 0:
+            return self.linear_decay(step, epsilon_start, epsilon_end, n_steps, decay_rate)
+
+        magnitude = n_steps
+        # https://www.desmos.com/calculator/ta2owwskqm
+        # https://math.stackexchange.com/questions/4014286/exponential-between-2-points
+        # return epsilon_end + (epsilon_start - epsilon_end) * math.exp(-1. * step_idx * decay_rate)
+        return (epsilon_end - epsilon_start) * (np.exp(-decay_rate * magnitude * step/n_steps) - 1) / (np.exp(-decay_rate * magnitude) - 1) + epsilon_start
+
+    def linear_decay(self, step: int, epsilon_start: float, epsilon_end: float, n_steps: int, decay_rate: int = 1):
+        assert 1 >= epsilon_start >= epsilon_end >= 0
+        assert 1 >= decay_rate >= 0
+
+        if decay_rate == 1:
+            return epsilon_end
+    
+        fraction = min(float(step) / int((1 - decay_rate) * n_steps), 1.0)
+        return epsilon_start + fraction * (epsilon_end - epsilon_start)
+        
+    def train(
+        self
+    ) -> np.ndarray:
+        raise NotImplementedError
+    
+
+
+class QLearningTrainer(BaseTrainer):
+    def __init__(self, env: BaseEnvironment) -> None:
+        super().__init__(env)
 
     def train(
         self,
         q_table: np.ndarray,
         n_episodes: int,
-        epsilon: float,
-        max_epsilon: float,
-        min_epsilon: float,
-        decay_rate: float,
-        decay_epsilon: bool,
         learning_rate: float,
         gamma: float,
         max_steps: int = None,
+        epsilon: float = None,
+        max_epsilon: float = None,
+        min_epsilon: float = None,
+        decay_rate: float = None,
+        decay_epsilon: str = "constant",
     ) -> np.ndarray:
         for episode in tqdm(range(n_episodes), total=n_episodes):
             state, _ = self.env.reset()
 
-            epsilon = (
-                max_epsilon - (max_epsilon - min_epsilon) * np.exp(-decay_rate * episode)
-                if decay_epsilon
-                else epsilon
-            )
+            epsilon = self.epsilon_decays[decay_epsilon](episode, max_epsilon, min_epsilon, n_episodes, decay_rate) if decay_epsilon != "constant" else epsilon
 
             step = 0
             while True:
@@ -71,7 +104,7 @@ class QLearningTrainer:
 
 
 
-class ReplayMemory:
+class ReplayMemory(object):
     def __init__(self, memory_size: int, batch_size: int) -> None:
         self.memory_size = memory_size
         self.batch_size = batch_size
@@ -87,25 +120,15 @@ class ReplayMemory:
         return len(self.memory)
 
 
-class DQNTrainer:
+class DQNTrainer(BaseTrainer):
     def __init__(self, env: BaseEnvironment, memory: ReplayMemory = None, device: str = None) -> None:
-        self.env = env
+        super().__init__(env)
         self.memory = memory
         self.device = device
 
     def greedy_policy(self, model, state: tuple[int, int]) -> int:
         state = torch.tensor(state, dtype=torch.float).to(self.device)
         return torch.argmax(model(state))    
-
-    def epsilon_greedy_policy(self,
-        model, state: tuple[int, int], epsilon: float
-    ) -> int:
-        """Epsilon-greedy Action Selection"""
-        if np.random.uniform(0, 1) < epsilon:
-            # return np.random.choice(len(self.env.actions))
-            return self.env.action_space.sample()
-        else:
-            return self.greedy_policy(model, state)
         
     def train(
         self,
@@ -113,13 +136,13 @@ class DQNTrainer:
         optimizer: torch.optim.Optimizer,
         criterion: torch.nn.modules.loss._Loss,
         n_episodes: int,
-        epsilon: float,
-        max_epsilon: float,
-        min_epsilon: float,
-        decay_rate: float,
-        decay_epsilon: bool,
         gamma: float,
         max_steps: int = None,
+        epsilon: float = None,
+        max_epsilon: float = None,
+        min_epsilon: float = None,
+        decay_rate: float = None,
+        decay_epsilon: str = "constant",
     ) -> np.ndarray:
         tqdm_range = tqdm(range(n_episodes), total=n_episodes)
 
@@ -128,11 +151,7 @@ class DQNTrainer:
         for episode in tqdm_range:
             state, _ = self.env.reset()
 
-            epsilon = (
-                max_epsilon - (max_epsilon - min_epsilon) * np.exp(-decay_rate * episode)
-                if decay_epsilon
-                else epsilon
-            )
+            epsilon = self.epsilon_decays[decay_epsilon](episode, max_epsilon, min_epsilon, n_episodes, decay_rate) if decay_epsilon != "constant" else epsilon
 
             step = 0
             score = 0
@@ -235,26 +254,17 @@ class DQNTrainer:
         optimizer.step()
 
 
-class DDQNTrainer:
+class DDQNTrainer(BaseTrainer):
     """Double DQN Trainer"""
     # https://arxiv.org/pdf/1509.06461.pdf
     def __init__(self, env: BaseEnvironment, memory: ReplayMemory = None, device = None) -> None:
-        self.env = env
+        super().__init__(env)
         self.memory = memory
         self.device = device
+
     def greedy_policy(self, model, state: tuple[int, int]) -> int:
         state = torch.tensor(state, dtype=torch.float).to(self.device)
         return torch.argmax(model(state))    
-
-    def epsilon_greedy_policy(self,
-        model, state: tuple[int, int], epsilon: float
-    ) -> int:
-        """Epsilon-greedy Action Selection"""
-        if np.random.uniform(0, 1) < epsilon:
-            # return np.random.choice(len(self.env.actions))
-            return self.env.action_space.sample()
-        else:
-            return self.greedy_policy(model, state)
                 
     def train(
         self,
@@ -263,14 +273,14 @@ class DDQNTrainer:
         optimizer: torch.optim.Optimizer,
         criterion: torch.nn.modules.loss._Loss,
         n_episodes: int,
-        epsilon: float,
-        max_epsilon: float,
-        min_epsilon: float,
-        decay_rate: float,
-        decay_epsilon: bool,
         gamma: float,
         tau = 0.005,
         max_steps: int = None,
+        epsilon: float = None,
+        max_epsilon: float = None,
+        min_epsilon: float = None,
+        decay_rate: float = None,
+        decay_epsilon: str = "constant",
     ) -> np.ndarray:
         tqdm_range = tqdm(range(n_episodes), total=n_episodes)
 
@@ -279,11 +289,7 @@ class DDQNTrainer:
         for episode in tqdm_range:
             state, _ = self.env.reset()
 
-            epsilon = (
-                max_epsilon - (max_epsilon - min_epsilon) * np.exp(-decay_rate * episode)
-                if decay_epsilon
-                else epsilon
-            )
+            epsilon = self.epsilon_decays[decay_epsilon](episode, max_epsilon, min_epsilon, n_episodes, decay_rate) if decay_epsilon != "constant" else epsilon
 
             score = 0
             step = 0
@@ -298,7 +304,7 @@ class DDQNTrainer:
                 if self.memory is not None:
                     self.memory.add( state, action, reward, next_state, done)
 
-                    if len(self.memory) > self.memory.batch_size:
+                    if len(self.memory) >= self.memory.batch_size:
                         transitions = self.memory.sample()
 
                         # for transition in transitions:
@@ -351,7 +357,7 @@ class DDQNTrainer:
         gamma,
         transition,
     ):
-        state, action, next_state, reward, done = transition
+        state, action, reward, next_state, done = transition
         prediction = online_model(torch.tensor(state, dtype=torch.float).to(self.device))
         
         if not done:
@@ -402,44 +408,27 @@ class DDQNTrainer:
         optimizer.step()
 
 
-class SARSATrainer:
+class SARSATrainer(BaseTrainer):
     def __init__(self, env: BaseEnvironment) -> None:
-        self.env = env
-
-    def greedy_policy(self, q_table: np.ndarray, state: tuple[int, int]) -> int:
-        return np.argmax(q_table[state])
-
-    def epsilon_greedy_policy(self,
-        q_table: np.ndarray, state: tuple[int, int], epsilon: float
-    ) -> int:
-        """Epsilon-greedy Action Selection"""
-        if np.random.uniform(0, 1) < epsilon:
-            # return np.random.choice(len(self.env.actions))
-            return self.env.action_space.sample()
-        else:
-            return self.greedy_policy(q_table, state)
+        super().__init__(env)
 
     def train(
         self,
         q_table: np.ndarray,
         n_episodes: int,
-        epsilon: float,
-        max_epsilon: float,
-        min_epsilon: float,
-        decay_rate: float,
-        decay_epsilon: bool,
         learning_rate: float,
         gamma: float,
         max_steps: int = None,
+        epsilon: float = None,
+        max_epsilon: float = None,
+        min_epsilon: float = None,
+        decay_rate: float = None,
+        decay_epsilon: str = "constant",
     ) -> np.ndarray:
         for episode in tqdm(range(n_episodes), total=n_episodes):
             state, _ = self.env.reset()
 
-            epsilon = (
-                max_epsilon - (max_epsilon - min_epsilon) * np.exp(-decay_rate * episode)
-                if decay_epsilon
-                else epsilon
-            )
+            epsilon = self.epsilon_decays[decay_epsilon](episode, max_epsilon, min_epsilon, n_episodes, decay_rate) if decay_epsilon != "constant" else epsilon
 
             step = 0
             while True:
