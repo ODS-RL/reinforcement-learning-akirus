@@ -15,8 +15,10 @@ env = SnakeGameEnvironment(
     speed=10000
 )
 
-# trainer = DDQNTrainer(env) # Without memory(uncomment this line)
-trainer = DDQNTrainer(env, memory=ReplayMemory(memory_size=256, batch_size=8)) # With memory 
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+# trainer = DDQNTrainer(env, device) # Without memory(uncomment this line)
+trainer = DDQNTrainer(env, memory=ReplayMemory(memory_size=256, batch_size=8), device=device) # With memory 
 
 n_episodes = 300
 learning_rate = 0.01#0.005
@@ -37,15 +39,15 @@ class Model(nn.Module):
         x = self.linear2(x)
         return x
 
-policy_model = Model(11, 128, 3)
-target_model = Model(11, 128, 3)
+policy_model = Model(11, 128, 3).to(device)
+target_model = Model(11, 128, 3).to(device)
 target_model.load_state_dict(policy_model.state_dict())
 
 optimizer = Adam(policy_model.parameters(), lr=learning_rate)
 criterion = MSELoss()
 
 
-trainer.train(
+scores = trainer.train(
     online_model= policy_model,
     target_model = target_model,
     optimizer = optimizer,
@@ -68,10 +70,10 @@ torch.save(policy_model.state_dict(), "saves/snake_ddqn.pt")
 
 def test(model: torch.nn.Module):
     env.speed = 10
-    state = env.reset()
+    state, _ = env.reset()
     terminated = False
     while not terminated:
         action = trainer.greedy_policy(model, state)
-        state, reward, terminated = env.step(action)
+        state, reward, terminated, _, _ = env.step(action)
 
 test(policy_model)

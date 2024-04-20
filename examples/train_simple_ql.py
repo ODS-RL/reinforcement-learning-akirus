@@ -42,7 +42,7 @@ with open('saves/simple_ql.npy', 'wb') as f:
     np.save(f, q_table)
 
 def test(q_table: np.ndarray) -> tuple[float, list[tuple[int, int]]]:
-    state = env.reset()
+    state, _ = env.reset()
     terminated = False
     total_reward = 0
     states = []
@@ -52,7 +52,7 @@ def test(q_table: np.ndarray) -> tuple[float, list[tuple[int, int]]]:
         env.render(show=False, save_path=f"images/render-{i}.png")
 
         action = trainer.greedy_policy(q_table, state)
-        state, reward, terminated = env.step(action)
+        state, reward, terminated, _, _ = env.step(action)
 
         total_reward += reward
         states.append(state)

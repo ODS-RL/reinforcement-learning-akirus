@@ -43,11 +43,11 @@ with open('saves/snake_ql.npy', 'wb') as f:
 
 def test(q_table):
     env.speed = 10
-    state = env.reset()
+    state, _ = env.reset()
     terminated = False
     while not terminated:
         action = trainer.greedy_policy(q_table, state)
-        state, reward, terminated = env.step(action)
+        state, reward, terminated, _, _ = env.step(action)
         env.render()
 
 

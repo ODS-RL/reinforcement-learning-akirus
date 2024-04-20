@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from typing import Union
+from gymnasium import spaces
 from src.envs.base_env import BaseEnvironment
 
 class SimpleEnvironment(BaseEnvironment):
@@ -17,6 +18,7 @@ class SimpleEnvironment(BaseEnvironment):
         self.rewards[8:10, 1:3] = -100
 
         self.actions = ("up", "down", "left", "right")
+        self.action_space = spaces.Discrete(4)
 
         self.state = (0, 0)
 
@@ -28,9 +30,10 @@ class SimpleEnvironment(BaseEnvironment):
             return False
 
     def reset(self) -> None:
+        info = None # Not implemented, not used (plug)
         self.state = (0, 0)
 
-        return self.state
+        return self.state, info
 
     def step(self, action: Union[int, str]) -> None:
         action = action if isinstance(action, str) else self.actions[action]
@@ -46,7 +49,7 @@ class SimpleEnvironment(BaseEnvironment):
 
         reward = self.rewards[self.state[0], self.state[1]]
 
-        return self.state, reward, self.terminated
+        return self.state, reward, self.terminated, False, None
 
     def render(self, show: bool = True, save_path: str = None) -> None:
         render_space = np.copy(self.rewards)

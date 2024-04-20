@@ -21,7 +21,8 @@ class QLearningTrainer:
     ) -> int:
         """Epsilon-greedy Action Selection"""
         if np.random.uniform(0, 1) < epsilon:
-            return np.random.choice(len(self.env.actions))
+            # return np.random.choice(len(self.env.actions))
+            return self.env.action_space.sample()
         else:
             return self.greedy_policy(q_table, state)
 
@@ -39,7 +40,7 @@ class QLearningTrainer:
         max_steps: int = None,
     ) -> np.ndarray:
         for episode in tqdm(range(n_episodes), total=n_episodes):
-            state = self.env.reset()
+            state, _ = self.env.reset()
 
             epsilon = (
                 max_epsilon - (max_epsilon - min_epsilon) * np.exp(-decay_rate * episode)
@@ -51,7 +52,8 @@ class QLearningTrainer:
             while True:
                 action = self.epsilon_greedy_policy(q_table, state, epsilon)
 
-                next_state, reward, terminated = self.env.step(action)
+                next_state, reward, terminated, truncated, _ = self.env.step(action)
+                done = terminated or truncated
 
                 # The Bellman Equation
                 q_table[state][action] += learning_rate * (
@@ -60,7 +62,7 @@ class QLearningTrainer:
 
                 state = next_state
 
-                if terminated or step == max_steps:
+                if done or step == max_steps:
                     break
 
                 step += 1
@@ -75,8 +77,8 @@ class ReplayMemory:
         self.batch_size = batch_size
         self.memory = deque([], maxlen=memory_size)
 
-    def add(self, state, action, reward, next_state, terminated):
-        self.memory.append((state, action, reward, next_state, terminated))
+    def add(self, state, action, reward, next_state, done):
+        self.memory.append((state, action, reward, next_state, done))
 
     def sample(self):
         return random.sample(self.memory, self.batch_size)
@@ -86,12 +88,13 @@ class ReplayMemory:
 
 
 class DQNTrainer:
-    def __init__(self, env: BaseEnvironment, memory: ReplayMemory = None) -> None:
+    def __init__(self, env: BaseEnvironment, memory: ReplayMemory = None, device: str = None) -> None:
         self.env = env
         self.memory = memory
+        self.device = device
 
     def greedy_policy(self, model, state: tuple[int, int]) -> int:
-        state = torch.tensor(state, dtype=torch.float)
+        state = torch.tensor(state, dtype=torch.float).to(self.device)
         return torch.argmax(model(state))    
 
     def epsilon_greedy_policy(self,
@@ -99,7 +102,8 @@ class DQNTrainer:
     ) -> int:
         """Epsilon-greedy Action Selection"""
         if np.random.uniform(0, 1) < epsilon:
-            return np.random.choice(len(self.env.actions))
+            # return np.random.choice(len(self.env.actions))
+            return self.env.action_space.sample()
         else:
             return self.greedy_policy(model, state)
         
@@ -119,9 +123,10 @@ class DQNTrainer:
     ) -> np.ndarray:
         tqdm_range = tqdm(range(n_episodes), total=n_episodes)
 
-        losses = []
+        scores = []
+        scores_window = deque(maxlen = 100)
         for episode in tqdm_range:
-            state = self.env.reset()
+            state, _ = self.env.reset()
 
             epsilon = (
                 max_epsilon - (max_epsilon - min_epsilon) * np.exp(-decay_rate * episode)
@@ -129,47 +134,47 @@ class DQNTrainer:
                 else epsilon
             )
 
-            episode_losses = []
             step = 0
+            score = 0
             while True:
                 action = self.epsilon_greedy_policy(model, state, epsilon)
+                
+                next_state, reward, terminated, truncated, _  = self.env.step(action.item())
 
-                next_state, reward, terminated = self.env.step(action)
+                done = terminated or truncated
+                score += reward
 
                 if self.memory is not None:
-                    self.memory.add(state, action, next_state, reward, terminated)
+                    self.memory.add(state, action, reward, next_state, done)
 
                     if len(self.memory) >= self.memory.batch_size:
                         transitions = self.memory.sample()
 
-                        for transition in transitions:
-                            loss = self._train(model, optimizer, criterion, gamma, transition)
+                        # for transition in transitions:
+                        #     self._train(model, optimizer, criterion, gamma, transition)
 
-                            episode_losses.append(loss.item())
-                
+                        self._batch_train(model, optimizer, criterion, gamma, transitions)
                 else:
-                    loss = self._train(
+                    self._train(
                         model=model,
                         optimizer=optimizer,
                         criterion=criterion,
                         gamma=gamma,
-                        transition=(state, action, next_state, reward, terminated),
+                        transition=(state, action, reward, next_state, done),
                     )
-
-                    episode_losses.append(loss.item())
 
                 state = next_state
 
-                if terminated or step == max_steps:
+                if done or step == max_steps:
                     break
 
                 step += 1
                 
+            scores.append(score)
+            scores_window.append(score)   
+            tqdm_range.set_description(f"Score: {np.mean(scores_window):.3f}")
 
-            losses.append(np.mean(episode_losses))
-            tqdm_range.set_description(f"Loss: {losses[-1]:.3f}")
-
-        return losses
+        return scores
     
     def _train(
         self,
@@ -179,12 +184,12 @@ class DQNTrainer:
         gamma,
         transition,
     ):
-        state, action, next_state, reward, terminated = transition
-        prediction = model(torch.tensor(state, dtype=torch.float, requires_grad=True))
+        state, action, reward, next_state, done = transition
+        prediction = model(torch.tensor(state, dtype=torch.float).to(self.device))
         target = prediction.clone()
         
-        if not terminated:
-            q = reward + gamma * torch.max(model(torch.tensor(next_state, dtype=torch.float, requires_grad=True)))
+        if not done:
+            q = reward + gamma * torch.max(model(torch.tensor(next_state, dtype=torch.float).to(self.device)))
         else:
             q = reward
 
@@ -196,17 +201,49 @@ class DQNTrainer:
         optimizer.step()
 
         return loss
+    
+    def _batch_train(
+        self,
+        model: torch.nn.Module,
+        optimizer: torch.optim.Optimizer,
+        criterion: torch.nn.modules.loss._Loss,
+        gamma,
+        transitions
+    ):
+        states, actions, rewards, next_states, dones = map(list, zip(*transitions))
+        
+        states_tensor = torch.tensor(np.array(states), dtype=torch.float32).to(self.device)
+        next_states_tensor = torch.tensor(np.array(next_states), dtype=torch.float).to(self.device)
+        rewards_tensor = torch.tensor(rewards, dtype=torch.float).to(self.device)
+        dones_tensor = torch.tensor(dones, dtype=torch.bool).to(self.device)
+        
+        prediction = model(states_tensor)
+        
+        target = prediction.clone()
+        
+        next_state_values = model(next_states_tensor)
+
+        max_next_state_values = torch.max(next_state_values, dim=1)[0]
+
+        q_values = rewards_tensor + gamma * max_next_state_values * (~dones_tensor)
+        
+        target[range(len(actions)), actions] = q_values
+        
+        optimizer.zero_grad()
+        loss = criterion(prediction, target.detach())
+        loss.backward()
+        optimizer.step()
 
 
 class DDQNTrainer:
     """Double DQN Trainer"""
     # https://arxiv.org/pdf/1509.06461.pdf
-    def __init__(self, env: BaseEnvironment, memory: ReplayMemory = None) -> None:
+    def __init__(self, env: BaseEnvironment, memory: ReplayMemory = None, device = None) -> None:
         self.env = env
         self.memory = memory
-
+        self.device = device
     def greedy_policy(self, model, state: tuple[int, int]) -> int:
-        state = torch.tensor(state, dtype=torch.float)
+        state = torch.tensor(state, dtype=torch.float).to(self.device)
         return torch.argmax(model(state))    
 
     def epsilon_greedy_policy(self,
@@ -214,10 +251,11 @@ class DDQNTrainer:
     ) -> int:
         """Epsilon-greedy Action Selection"""
         if np.random.uniform(0, 1) < epsilon:
-            return np.random.choice(len(self.env.actions))
+            # return np.random.choice(len(self.env.actions))
+            return self.env.action_space.sample()
         else:
             return self.greedy_policy(model, state)
-        
+                
     def train(
         self,
         online_model: torch.nn.Module,
@@ -236,9 +274,10 @@ class DDQNTrainer:
     ) -> np.ndarray:
         tqdm_range = tqdm(range(n_episodes), total=n_episodes)
 
-        losses = []
+        scores = []
+        scores_window = deque(maxlen = 100)
         for episode in tqdm_range:
-            state = self.env.reset()
+            state, _ = self.env.reset()
 
             epsilon = (
                 max_epsilon - (max_epsilon - min_epsilon) * np.exp(-decay_rate * episode)
@@ -246,36 +285,43 @@ class DDQNTrainer:
                 else epsilon
             )
 
-            episode_losses = []
+            score = 0
             step = 0
-
             while True:
                 action: int = self.epsilon_greedy_policy(online_model, state, epsilon)
 
-                next_state, reward, terminated = self.env.step(action)
+                next_state, reward, terminated, truncated, _  = self.env.step(action.item())
+
+                done = terminated or truncated
+                score += reward
 
                 if self.memory is not None:
-                    self.memory.add(state, action, next_state, reward, terminated)
+                    self.memory.add( state, action, reward, next_state, done)
 
                     if len(self.memory) > self.memory.batch_size:
                         transitions = self.memory.sample()
 
-                        for transition in transitions:
-                            loss = self._train(online_model, target_model, optimizer, criterion, gamma, transition)
+                        # for transition in transitions:
+                        #     self._train(online_model, target_model, optimizer, criterion, gamma, transition)
 
-                            episode_losses.append(loss.item())
+                        self._batch_train(
+                            online_model=online_model,
+                            target_model=target_model,
+                            optimizer=optimizer,
+                            criterion=criterion,
+                            gamma=gamma,
+                            transitions=transitions
+                        )
 
                 else:
-                    loss = self._train(
+                    self._train(
                         online_model=online_model,
                         target_model=target_model,
                         optimizer=optimizer,
                         criterion=criterion,
                         gamma=gamma,
-                        transition=(state, action, next_state, reward, terminated),
+                        transition=(state, action, reward, next_state, done),
                     )
-
-                    episode_losses.append(loss.item())
 
                 target_weights = target_model.state_dict()
                 policy_weights = online_model.state_dict()
@@ -285,15 +331,16 @@ class DDQNTrainer:
 
                 state = next_state
 
-                if terminated or step == max_steps:
+                if done or step == max_steps:
                     break
 
                 step += 1
+            
+            scores.append(score)
+            scores_window.append(score)   
+            tqdm_range.set_description(f"Score: {np.mean(scores_window):.3f}")
 
-            losses.append(np.mean(episode_losses))
-            tqdm_range.set_description(f"Loss: {losses[-1]:.3f}")
-
-        return losses
+        return scores
     
     def _train(
         self,
@@ -304,11 +351,11 @@ class DDQNTrainer:
         gamma,
         transition,
     ):
-        state, action, next_state, reward, terminated = transition
-        prediction = online_model(torch.tensor(state, dtype=torch.float, requires_grad=True))
+        state, action, next_state, reward, done = transition
+        prediction = online_model(torch.tensor(state, dtype=torch.float).to(self.device))
         
-        if not terminated:
-            q = reward + gamma * torch.max(target_model(torch.tensor(next_state, dtype=torch.float, requires_grad=True)))
+        if not done:
+            q = reward + gamma * torch.max(target_model(torch.tensor(next_state, dtype=torch.float).to(self.device)))
         else:
             q = reward
 
@@ -320,7 +367,40 @@ class DDQNTrainer:
         loss.backward()
         optimizer.step()
 
-        return loss
+    
+    def _batch_train(
+        self,
+        online_model: torch.nn.Module,
+        target_model: torch.nn.Module,
+        optimizer: torch.optim.Optimizer,
+        criterion: torch.nn.modules.loss._Loss,
+        gamma,
+        transitions,
+    ):
+        states, actions, rewards, next_states, dones = map(list, zip(*transitions))
+        
+        states_tensor = torch.tensor(np.array(states), dtype=torch.float).to(self.device)
+        next_states_tensor = torch.tensor(np.array(next_states), dtype=torch.float).to(self.device)
+        rewards_tensor = torch.tensor(rewards, dtype=torch.float).to(self.device)
+        dones_tensor = torch.tensor(dones, dtype=torch.bool).to(self.device)
+
+        predictions = online_model(states_tensor)
+
+        next_state_values = target_model(next_states_tensor)
+
+        max_next_state_values = torch.max(next_state_values, dim=1)[0]
+
+        q_values = rewards_tensor + (1 - dones_tensor.float()) * gamma * max_next_state_values
+
+        targets = predictions.clone()
+
+        targets[range(len(actions)), actions] = q_values
+
+        optimizer.zero_grad()
+        loss = criterion(predictions, targets)
+        loss.backward()
+        optimizer.step()
+
 
 class SARSATrainer:
     def __init__(self, env: BaseEnvironment) -> None:
@@ -334,7 +414,8 @@ class SARSATrainer:
     ) -> int:
         """Epsilon-greedy Action Selection"""
         if np.random.uniform(0, 1) < epsilon:
-            return np.random.choice(len(self.env.actions))
+            # return np.random.choice(len(self.env.actions))
+            return self.env.action_space.sample()
         else:
             return self.greedy_policy(q_table, state)
 
@@ -352,7 +433,7 @@ class SARSATrainer:
         max_steps: int = None,
     ) -> np.ndarray:
         for episode in tqdm(range(n_episodes), total=n_episodes):
-            state = self.env.reset()
+            state, _ = self.env.reset()
 
             epsilon = (
                 max_epsilon - (max_epsilon - min_epsilon) * np.exp(-decay_rate * episode)
@@ -364,7 +445,8 @@ class SARSATrainer:
             while True:
                 action = self.epsilon_greedy_policy(q_table, state, epsilon)
 
-                next_state, reward, terminated = self.env.step(action)
+                next_state, reward, terminated, truncated, _ = self.env.step(action)
+                done = terminated or truncated
 
                 # SARSA Update
                 next_action = self.epsilon_greedy_policy(q_table, next_state, epsilon)
@@ -375,7 +457,7 @@ class SARSATrainer:
 
                 state = next_state
 
-                if terminated or step == max_steps:
+                if done or step == max_steps:
                     break
 
                 step += 1

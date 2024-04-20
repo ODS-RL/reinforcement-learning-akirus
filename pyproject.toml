@@ -12,6 +12,7 @@ tqdm = "^4.66.2"
 matplotlib = "^3.8.4"
 pygame = "^2.5.2"
 torch = "^2.2.2"
+gymnasium = "^0.29.1"
 
 
 [build-system]

@@ -1,6 +1,7 @@
 import pygame
 import random
 import numpy as np
+from gymnasium import spaces
 from src.envs.base_env import BaseEnvironment
 # Additional resources
 # https://cs230.stanford.edu/projects_fall_2021/reports/103085287.pdf
@@ -39,6 +40,7 @@ class SnakeGameEnvironment(BaseEnvironment):
         self.place_food()
 
         self.actions = ("left", "straight", "right")
+        self.action_space = spaces.Discrete(3)
         self.directions = ("up", "down", "left", "right")
         self.direction = random.choice(self.directions)
 
@@ -68,13 +70,14 @@ class SnakeGameEnvironment(BaseEnvironment):
             self.food = (x, y) 
 
     def reset(self) -> None:
+        info = None # Not implemented, not used (plug)
         self.score = 0
         self.head = (self.width // 2, self.height // 2)
         self.snake = [self.head]
         self.direction = random.choice(self.directions)
         self.place_food()
         
-        return self.state
+        return self.state, info
     
     @property
     def state(self) -> None: # States logic was borrowed from https://cs230.stanford.edu/projects_fall_2021/reports/103085287.pdf
@@ -118,6 +121,8 @@ class SnakeGameEnvironment(BaseEnvironment):
     def step(self, action):
         reward = 0 # TODO Update reward logic (Example: https://ceasjournal.com/index.php/CEAS/article/download/13/10)
         terminated = False
+        truncated = False # Not implemented, not used (plug)
+        info = None # Not implemented, not used (plug)
 
         self.handle_input(action)
         self.update_head()
@@ -128,7 +133,7 @@ class SnakeGameEnvironment(BaseEnvironment):
             reward = self.reward["collision"]
             terminated = True
 
-            return self.state, reward, terminated
+            return (self.state, reward, terminated, truncated, info)
 
         if self.head[0] == self.food[0] and self.head[1] == self.food[1]:
             reward = self.reward["food"]
@@ -141,7 +146,7 @@ class SnakeGameEnvironment(BaseEnvironment):
         self.render()
         self.clock.tick(self.speed)
 
-        return self.state, reward, terminated
+        return (self.state, reward, terminated, truncated, info)
 
     def handle_input(self, action: int | str): # 0 = left, 1 = straight, 2 = right
         for event in pygame.event.get():

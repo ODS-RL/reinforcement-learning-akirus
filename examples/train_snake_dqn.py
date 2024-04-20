@@ -24,7 +24,7 @@ gamma = 0.9  # Discount factor
 epsilon = 0.1
 min_epsilon = 0.01
 max_epsilon = 1
-decay_rate = 0.001
+decay_rate = 0.0005
 
 class Model(nn.Module):
     def __init__(self, input_size, hidden_size, output_size):
@@ -52,7 +52,7 @@ trainer.train(
     max_epsilon = max_epsilon,
     min_epsilon = min_epsilon,
     decay_rate = decay_rate,
-    decay_epsilon = False,
+    decay_epsilon = True,
     gamma = gamma,
 )
 
@@ -65,10 +65,10 @@ torch.save(model.state_dict(), "saves/snake_dqn.pt")
 
 def test(model: torch.nn.Module):
     env.speed = 10
-    state = env.reset()
+    state, _ = env.reset()
     terminated = False
     while not terminated:
         action = trainer.greedy_policy(model, state)
-        state, reward, terminated = env.step(action)
+        state, reward, terminated, _, _ = env.step(action)
 
 test(model)
