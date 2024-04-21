@@ -66,7 +66,7 @@ trainer.train(
 
 if not os.path.exists("saves"):
     os.makedirs("saves")
-torch.save(policy_model.state_dict(), "saves/snake_cartpole_dqn.pt")
+torch.save(policy_model.state_dict(), "saves/lunar_lander_dqn.pt")
 env.close()
 
 env = gym.make("LunarLander-v2", render_mode="human")
