@@ -256,7 +256,7 @@ class DQNTrainer(BaseTrainer):
 
 class DDQNTrainer(BaseTrainer):
     """Double DQN Trainer"""
-    # https://arxiv.org/pdf/1509.06461.pdf
+    # https://arxiv.org/pdf/1509.06461.pdf (Deep Reinforcement Learning with Double Q-learning)
     def __init__(self, env: BaseEnvironment, memory: ReplayMemory = None, device = None) -> None:
         super().__init__(env)
         self.memory = memory
