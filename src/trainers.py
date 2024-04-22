@@ -4,6 +4,7 @@ import random
 from collections import deque
 from tqdm import tqdm
 from src.envs.base_env import BaseEnvironment
+from src.noise import BaseNoise
 
 # https://arxiv.org/pdf/1312.5602.pdf
 # https://arxiv.org/pdf/1509.02971.pdf
@@ -482,7 +483,7 @@ class DDPGTrainer(BaseTrainer):
         actor_optimizer: torch.optim.Optimizer,
         critic_optimizer: torch.optim.Optimizer,
         criterion: torch.nn.modules.loss._Loss,
-        noise,
+        noise: BaseNoise,
         n_episodes: int,
         gamma: float,
         tau = 0.005,

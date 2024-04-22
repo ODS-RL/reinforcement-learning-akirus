@@ -1,8 +1,8 @@
 # Run with `python3 -m examples.train_snake_ql`
 import os
 import numpy as np
-from src import SnakeGameEnvironment
-from src import SARSATrainer
+from src.envs import SnakeGameEnvironment
+from src.trainers import SARSATrainer
 
 env = SnakeGameEnvironment(
     width=200,

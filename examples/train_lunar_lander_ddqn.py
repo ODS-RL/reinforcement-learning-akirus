@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim import Adam
 from torch.nn import MSELoss
-from src import DDQNTrainer, ReplayMemory
+from src.trainers import DDQNTrainer, ReplayMemory
 import gymnasium as gym
 
 env = gym.make("LunarLander-v2",)

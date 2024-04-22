@@ -1,8 +1,8 @@
 # Run with `python3 -m examples.train_simple_ql`
 import os
 import numpy as np
-from src import SimpleEnvironment
-from src import QLearningTrainer
+from src.envs import SimpleEnvironment
+from src.trainers import QLearningTrainer
 from PIL import Image
 
 # Inspired by https://huggingface.co/learn/deep-rl-course/unit2/hands-on

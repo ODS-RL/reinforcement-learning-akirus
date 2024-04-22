@@ -1,8 +1,8 @@
 # Run with `python3 -m examples.train_snake_ql`
 import os
 import numpy as np
-from src import SnakeGameEnvironment
-from src import QLearningTrainer
+from src.envs import SnakeGameEnvironment
+from src.trainers import QLearningTrainer
 
 env = SnakeGameEnvironment(
     width=200,

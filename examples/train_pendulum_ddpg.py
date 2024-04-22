@@ -6,16 +6,17 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim import Adam
 from torch.nn import MSELoss
-from src import DDPGTrainer, ReplayMemory
+from src.trainers import DDPGTrainer, ReplayMemory
+from src.noise import OUActionNoise
 import gymnasium as gym
 
 env = gym.make("Pendulum-v1")
 
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-trainer = DDPGTrainer(env, memory=ReplayMemory(memory_size=int(1e5), batch_size=256), device=device)
+trainer = DDPGTrainer(env, memory=ReplayMemory(memory_size=int(1e5), batch_size=128), device=device)
 
-n_episodes = 100
+n_episodes = 300
 actor_learning_rate = 5e-4
 critic_learning_rate = 5e-3
 gamma = 0.99  # Discount factor
@@ -64,33 +65,6 @@ actor_optimizer = Adam(actor.parameters(), lr=actor_learning_rate)
 critic_optimizer = Adam(critic.parameters(), lr=critic_learning_rate)
 
 criterion = MSELoss()
-
-class OUActionNoise:
-    # Ornstein-Uhlenbeck process (https://www.wikipedia.org/wiki/Ornstein-Uhlenbeck_process)
-    # Taken from https://github.com/openai/baselines/blob/master/baselines/ddpg/noise.py
-    def __init__(self, mu, sigma = 0.2, theta=0.15, dt=1e-2, x0=None):
-        self.theta = theta
-        self.mu = mu
-        self.sigma = sigma
-        self.dt = dt
-        self.x0 = x0
-        self.reset()
-
-    def sample(self):
-        x = (
-            self.x_prev
-            + self.theta * (self.mu - self.x_prev) * self.dt
-            + self.sigma * np.sqrt(self.dt) * np.random.normal(size=self.mu.shape)
-        )
-
-        self.x_prev = x
-        return x
-
-    def reset(self):
-        if self.x0 is not None:
-            self.x_prev = self.x0
-        else:
-            self.x_prev = np.zeros_like(self.mu)
 
 ou_noise = OUActionNoise(mu = np.zeros(env.action_space.shape[0]))
 
