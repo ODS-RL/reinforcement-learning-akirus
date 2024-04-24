@@ -6,7 +6,8 @@ import torch.nn.functional as F
 from torch.optim import Adam
 from torch.nn import MSELoss
 from src.envs import SnakeGameEnvironment
-from src.trainers import DQNTrainer, ReplayMemory
+from src.trainers import DQNTrainer
+from src.buffers import ReplayMemory
 
 env = SnakeGameEnvironment(
     width=200,

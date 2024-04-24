@@ -6,7 +6,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim import Adam
 from torch.nn import MSELoss
-from src.trainers import DDPGTrainer, ReplayMemory
+from src.trainers import DDPGTrainer
+from src.buffers import ReplayMemory
 from src.noise import OUActionNoise
 import gymnasium as gym
 

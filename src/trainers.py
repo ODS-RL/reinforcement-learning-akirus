@@ -1,10 +1,12 @@
 import numpy as np
 import torch
 import random
+from torch.distributions.categorical import Categorical
 from collections import deque
 from tqdm import tqdm
 from src.envs.base_env import BaseEnvironment
 from src.noise import BaseNoise
+from src.buffers import ReplayMemory, Buffer, ExtendableBuffer
 
 # https://arxiv.org/pdf/1312.5602.pdf
 # https://arxiv.org/pdf/1509.02971.pdf
@@ -102,23 +104,6 @@ class QLearningTrainer(BaseTrainer):
                 step += 1
 
         return q_table
-
-
-
-class ReplayMemory(object):
-    def __init__(self, memory_size: int, batch_size: int) -> None:
-        self.memory_size = memory_size
-        self.batch_size = batch_size
-        self.memory = deque([], maxlen=memory_size)
-
-    def add(self, state, action, reward, next_state, done):
-        self.memory.append((state, action, reward, next_state, done))
-
-    def sample(self):
-        return random.sample(self.memory, self.batch_size)
-
-    def __len__(self):
-        return len(self.memory)
 
 
 class DQNTrainer(BaseTrainer):
@@ -587,5 +572,110 @@ class DDPGTrainer(BaseTrainer):
         for key in source_weights:
             target_weights[key] = source_weights[key]*tau + target_weights[key]*(1-tau)
         target.load_state_dict(target_weights)
+
+
+class VPGTrainer(BaseTrainer):
+    def __init__(self, env: BaseEnvironment, device = None) -> None:
+        super().__init__(env)
+        self.device = device
+        self.buffer = Buffer()
+        self.batch_buffer = ExtendableBuffer()
+
+    def policy(self, actor, state):
+        probs = actor(torch.tensor(state, dtype=torch.float).to(self.device))
+        dist = Categorical(probs)
+        action = dist.sample()
+        return action.cpu().detach().numpy()
     
+    def reward_to_go(self, rewards, gamma=1.0, noralize=False):
+        # https://subscription.packtpub.com/book/data/9781789533583/1/ch01lvl1sec05/identifying-reward-functions-and-the-concept-of-discounted-rewards
+        # https://medium.com/iecse-hashtag/rl-part-2-returns-policy-and-value-functions-33311f16197
+        rewards_to_go = []
+        cumulative_reward = 0
+        for reward in reversed(rewards):
+            cumulative_reward = reward + gamma * cumulative_reward
+            rewards_to_go.insert(0, cumulative_reward)
+
+        # for i in range(len(rewards)):
+        #     for j in range(i, len(rewards)):
+        #         rewards_to_go[i] += rewards[j] * (gamma ** (j - i))
+
+        # rewards_to_go = np.array([np.sum(rewards[i:]*(gamma**np.array(range(0, len(rewards)-i)))) for i in range(len(rewards))])
+
+        if noralize:
+            rewards_to_go = (rewards_to_go - np.mean(rewards_to_go)) / (np.std(rewards_to_go))
+
+        return rewards_to_go
+
+    def train(
+        self,
+        actor: torch.nn.Module,
+        optimizer: torch.optim.Optimizer,
+        n_episodes: int,
+        batch_size: int,
+        gamma: float = 0.99,
+        max_steps: int = None,
         
+    ):
+        tqdm_range = tqdm(range(n_episodes), total=n_episodes)
+
+        self.batch_buffer.reset()
+        scores = []
+        scores_window = deque(maxlen = 100)
+        for episode in tqdm_range:
+            state, _ = self.env.reset()
+            self.buffer.reset()
+
+            score = 0
+            step = 0
+            while True:
+                action = self.policy(actor, state)
+                next_state, reward, terminated, truncated, _ = self.env.step(action.item())
+
+                self.buffer.add(state, action, reward)
+
+                done = terminated or truncated
+                score += reward
+
+                state = next_state
+
+                if done or step == max_steps:
+                    cache = self.buffer.take()
+                    states, actions, rewards = map(np.array, zip(*cache))
+
+                    rewards_to_go = self.reward_to_go(rewards, gamma)
+
+                    self.batch_buffer.extend(states, actions, rewards_to_go)
+
+                    if len(self.batch_buffer) >= batch_size:
+                        batch_cache = self.batch_buffer.take()
+
+                        bacth_states, batch_actions, batch_rewards_to_go = batch_cache
+
+                        bacth_states = torch.tensor(np.array(bacth_states), dtype=torch.float).to(self.device)
+                        batch_actions = torch.tensor(np.array(batch_actions), dtype=torch.int64).to(self.device)
+                        batch_rewards_to_go = torch.tensor(np.array(batch_rewards_to_go), dtype=torch.float).to(self.device)
+
+                        logprobs = torch.log(actor(bacth_states))
+                        actions_logprobs = batch_rewards_to_go * torch.gather(logprobs, 1, batch_actions.unsqueeze(1)).squeeze() # or logprob[torch.arange(len(logprob)), batch_actions].squeeze()
+
+                        loss = -actions_logprobs.mean()
+
+                        optimizer.zero_grad()
+                        loss.backward()
+                        optimizer.step()
+
+                        self.batch_buffer.reset()
+
+                    break
+                       
+                  
+
+                step += 1
+            
+            scores.append(score)
+            scores_window.append(score)   
+            tqdm_range.set_description(f"Score: {np.mean(scores_window):.3f}")
+
+
+        return scores

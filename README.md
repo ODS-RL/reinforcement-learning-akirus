@@ -12,6 +12,7 @@ This is an implementation of the RL algorithms in Python.
 4. Deep Q Network (DQN)
 5. Double Deep Q Network (DDQN)
 6. Deep Deterministic Policy Gradients (DDPG)
+7. Vanilla Policy Gradient (VPG)
 
 Check out the *[examples](/examples)* folder for training demonstrations.
 
