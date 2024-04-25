@@ -17,6 +17,8 @@ trainer = A2CTrainer(env, device=device)
 
 n_episodes = 500
 gamma = 0.99  # Discount factor
+value_coeff = 0.5
+entropy_coeff = 0.01
 learning_rate = 1e-3
 
 class Actor(nn.Module):
@@ -66,6 +68,8 @@ trainer.train(
     criterion=MSELoss(),
     n_episodes = n_episodes,
     gamma = gamma,
+    value_coeff = value_coeff,
+    entropy_coeff = entropy_coeff,
     batch_size=32
 )
     

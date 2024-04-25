@@ -697,7 +697,9 @@ class A2CTrainer(BaseTrainer):
 
         value = critic(state)
 
-        return action.cpu().detach().numpy(), value.cpu().detach().numpy()
+        entropy = dist.entropy().mean()
+
+        return action.cpu().detach().numpy(), value.cpu().detach().numpy(), entropy.cpu().detach().numpy()
     
     def reward_to_go(self, rewards, gamma=1.0, noralize=False):
         # https://subscription.packtpub.com/book/data/9781789533583/1/ch01lvl1sec05/identifying-reward-functions-and-the-concept-of-discounted-rewards
@@ -724,6 +726,8 @@ class A2CTrainer(BaseTrainer):
         n_episodes: int,
         batch_size: int,
         gamma: float = 0.99,
+        value_coeff: float = 0.5,
+        entropy_coeff: float = 0.01,
         max_steps: int = None,
         
     ):
@@ -739,10 +743,10 @@ class A2CTrainer(BaseTrainer):
             score = 0
             step = 0
             while True:
-                action, value = self.policy(actor, critic, state)
+                action, value, entropy = self.policy(actor, critic, state)
                 next_state, reward, terminated, truncated, _ = self.env.step(action.item())
 
-                self.buffer.add(state, action, value, reward)
+                self.buffer.add(state, action, value, reward, entropy)
 
                 done = terminated or truncated
                 score += reward
@@ -751,21 +755,22 @@ class A2CTrainer(BaseTrainer):
 
                 if done or step == max_steps:
                     cache = self.buffer.take()
-                    states, actions, values, rewards = map(np.array, zip(*cache))
+                    states, actions, values, rewards, entropies = map(np.array, zip(*cache))
 
                     rewards_to_go = self.reward_to_go(rewards, gamma)
 
-                    self.batch_buffer.extend(states, actions, values, rewards_to_go)
+                    self.batch_buffer.extend(states, actions, values, rewards_to_go, entropies)
 
                     if len(self.batch_buffer) >= batch_size:
                         batch_cache = self.batch_buffer.take()
 
-                        batch_states, batch_actions, batch_values, batch_rewards_to_go = batch_cache
+                        batch_states, batch_actions, batch_values, batch_rewards_to_go, batch_entropies = batch_cache
 
                         batch_states = torch.tensor(np.array(batch_states), dtype=torch.float).to(self.device)
                         batch_actions = torch.tensor(np.array(batch_actions), dtype=torch.int64).to(self.device)
                         batch_values = torch.tensor(np.array(batch_values), dtype=torch.float).to(self.device)
                         batch_rewards_to_go = torch.tensor(np.array(batch_rewards_to_go), dtype=torch.float).to(self.device)
+                        entropy = torch.tensor(np.array(batch_entropies), dtype=torch.float).sum().to(self.device)
 
 
                         advantages = batch_rewards_to_go - batch_values.squeeze()
@@ -776,7 +781,7 @@ class A2CTrainer(BaseTrainer):
 
                         critic_loss = criterion(critic(batch_states).squeeze(), batch_rewards_to_go)
 
-                        loss = actor_loss + critic_loss
+                        loss = actor_loss + value_coeff * critic_loss - entropy_coeff * entropy
 
                         actor_optimizer.zero_grad()
                         critic_optimizer.zero_grad()
