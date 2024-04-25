@@ -2,14 +2,16 @@
 import torch
 import torch.nn as nn
 from torch.optim import Adam
-from src.trainers import VPGTrainer #Discrete version
+from torch.nn import MSELoss
+from src.trainers import A2CTrainer #Discrete version
 import gymnasium as gym
 
 
 env = gym.make("CartPole-v1")
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-trainer = VPGTrainer(env, device=device)
+trainer = A2CTrainer(env, device=device)
+
 
 
 
@@ -21,24 +23,47 @@ class Actor(nn.Module):
     def __init__(self, n_observations, n_actions):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(n_observations, 128),
+            nn.Linear(n_observations, 64),
             nn.ReLU(),
-            nn.Linear(128, 128),
+            nn.Linear(64, 64),
             nn.ReLU(),
-            nn.Linear(128, n_actions),
+            nn.Linear(64, n_actions),
             nn.Softmax(dim=-1)
         )
 
     def forward(self, x):
         return self.net(x)
     
+
+class Critic(nn.Module):
+    def __init__(self, n_observations):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(n_observations, 64),
+            nn.ReLU(),
+            nn.Linear(64, 64),
+            nn.ReLU(),
+            nn.Linear(64, 1)
+        )
+
+    def forward(self, x):
+        return self.net(x)
+    
+
+    
 actor = Actor(env.observation_space.shape[0], env.action_space.n).to(device)
-optimizer = Adam(actor.parameters(), lr=learning_rate)
+critic = Critic(env.observation_space.shape[0]).to(device)
+
+actor_optimizer = Adam(actor.parameters(), lr=learning_rate)
+critic_optimizer = Adam(critic.parameters(), lr=learning_rate)
     
 
 trainer.train(
     actor = actor,
-    optimizer = optimizer,
+    critic = critic,
+    actor_optimizer = actor_optimizer,
+    critic_optimizer = critic_optimizer,
+    criterion=MSELoss(),
     n_episodes = n_episodes,
     gamma = gamma,
     batch_size=32

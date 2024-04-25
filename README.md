@@ -13,6 +13,7 @@ This is an implementation of the RL algorithms in Python.
 5. Double Deep Q Network (DDQN)
 6. Deep Deterministic Policy Gradients (DDPG)
 7. Vanilla Policy Gradient (VPG)
+8. Advantage Actor Critic (A2C)
 
 Check out the *[examples](/examples)* folder for training demonstrations.
 
