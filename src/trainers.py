@@ -586,20 +586,20 @@ class VPGTrainer(BaseTrainer):
         action = dist.sample()
         return action.cpu().detach().numpy()
     
-    def reward_to_go(self, rewards, gamma=1.0, noralize=False):
+    def reward_to_go(self, rewards, dones, gamma=1.0, noralize=False):
         # https://subscription.packtpub.com/book/data/9781789533583/1/ch01lvl1sec05/identifying-reward-functions-and-the-concept-of-discounted-rewards
         # https://medium.com/iecse-hashtag/rl-part-2-returns-policy-and-value-functions-33311f16197
         rewards_to_go = []
         cumulative_reward = 0
-        for reward in reversed(rewards):
-            cumulative_reward = reward + gamma * cumulative_reward
+        for reward, done in zip(reversed(rewards), reversed(dones)):
+            cumulative_reward = reward + gamma * (1 - done) * cumulative_reward
             rewards_to_go.insert(0, cumulative_reward)
 
         # for i in range(len(rewards)):
         #     for j in range(i, len(rewards)):
-        #         rewards_to_go[i] += rewards[j] * (gamma ** (j - i))
+        #         rewards_to_go[i] += rewards[j] * (1 - dones[j]) * (gamma ** (j - i))
 
-        # rewards_to_go = np.array([np.sum(rewards[i:]*(gamma**np.array(range(0, len(rewards)-i)))) for i in range(len(rewards))])
+        # rewards_to_go = np.array([np.sum(rewards[i:]*(1 - dones[i:])*(gamma**np.array(range(0, len(rewards)-i)))) for i in range(len(rewards))])
 
         if noralize:
             rewards_to_go = (rewards_to_go - np.mean(rewards_to_go)) / (np.std(rewards_to_go) + 1e-9)
@@ -631,18 +631,19 @@ class VPGTrainer(BaseTrainer):
                 action = self.policy(actor, state)
                 next_state, reward, terminated, truncated, _ = self.env.step(action.item())
 
-                self.buffer.add(state, action, reward)
-
                 done = terminated or truncated
+
+                self.buffer.add(state, action, reward, done)      
+                          
                 score += reward
 
                 state = next_state
 
                 if done or step == max_steps:
                     cache = self.buffer.take()
-                    states, actions, rewards = map(np.array, zip(*cache))
+                    states, actions, rewards, dones = map(np.array, zip(*cache))
 
-                    rewards_to_go = self.reward_to_go(rewards, gamma)
+                    rewards_to_go = self.reward_to_go(rewards, dones, gamma)
 
                     self.batch_buffer.extend(states, actions, rewards_to_go)
 
@@ -701,13 +702,13 @@ class A2CTrainer(BaseTrainer):
 
         return action.cpu().detach().numpy(), value.cpu().detach().numpy(), entropy.cpu().detach().numpy()
     
-    def reward_to_go(self, rewards, gamma=1.0, noralize=False):
+    def reward_to_go(self, rewards, dones, gamma=1.0, noralize=False):
         # https://subscription.packtpub.com/book/data/9781789533583/1/ch01lvl1sec05/identifying-reward-functions-and-the-concept-of-discounted-rewards
         # https://medium.com/iecse-hashtag/rl-part-2-returns-policy-and-value-functions-33311f16197
         rewards_to_go = []
         cumulative_reward = 0
-        for reward in reversed(rewards):
-            cumulative_reward = reward + gamma * cumulative_reward
+        for reward, done in zip(reversed(rewards), reversed(dones)):
+            cumulative_reward = reward + gamma * (1 - done) * cumulative_reward
             rewards_to_go.insert(0, cumulative_reward)
 
         if noralize:
@@ -746,18 +747,19 @@ class A2CTrainer(BaseTrainer):
                 action, value, entropy = self.policy(actor, critic, state)
                 next_state, reward, terminated, truncated, _ = self.env.step(action.item())
 
-                self.buffer.add(state, action, value, reward, entropy)
-
                 done = terminated or truncated
+
+                self.buffer.add(state, action, value, reward, entropy, done)
+
                 score += reward
 
                 state = next_state
 
                 if done or step == max_steps:
                     cache = self.buffer.take()
-                    states, actions, values, rewards, entropies = map(np.array, zip(*cache))
+                    states, actions, values, rewards, entropies, dones = map(np.array, zip(*cache))
 
-                    rewards_to_go = self.reward_to_go(rewards, gamma)
+                    rewards_to_go = self.reward_to_go(rewards, dones, gamma)
 
                     self.batch_buffer.extend(states, actions, values, rewards_to_go, entropies)
 

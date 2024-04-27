@@ -11,7 +11,7 @@ This is an implementation of the RL algorithms in Python.
 2. SARSA    
 4. Deep Q Network (DQN)
 5. Double Deep Q Network (DDQN)
-6. Deep Deterministic Policy Gradients (DDPG)
+6. Deep Deterministic Policy Gradient (DDPG)
 7. Vanilla Policy Gradient (VPG)
 8. Advantage Actor Critic (A2C)
 

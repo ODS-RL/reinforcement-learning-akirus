@@ -1,4 +1,4 @@
-# Run with `python3 -m examples.train_cartpole_vpg`
+# Run with `python3 -m examples.train_cartpole_a2c`
 import torch
 import torch.nn as nn
 from torch.optim import Adam
