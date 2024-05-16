@@ -10,6 +10,8 @@ from src.buffers import ReplayMemory, Buffer, ExtendableBuffer
 # https://arxiv.org/pdf/1312.5602.pdf
 # https://arxiv.org/pdf/1509.02971.pdf
 
+# TODO: Split BaseTrainer into BaseQLearningTrainer and BasePolicyOptimizationTrainer
+
 class BaseTrainer:
     def __init__(self, env: BaseEnvironment) -> None:
         self.env = env
@@ -790,6 +792,131 @@ class A2CTrainer(BaseTrainer):
                         loss.backward()
                         actor_optimizer.step()
                         critic_optimizer.step()
+
+                        self.batch_buffer.reset()
+
+                    break
+
+                step += 1
+
+            scores_window.append(score)
+            scores.append(score)
+            tqdm_range.set_description(f"Score: {np.mean(scores_window)}")
+
+        return scores
+    
+class PPOTrainer(BaseTrainer):
+    def __init__(self, env: BaseEnvironment, device=None) -> None:
+        super().__init__(env)
+        self.device = device
+        self.buffer = Buffer()
+        self.batch_buffer = ExtendableBuffer()
+
+    def policy(self, actor, critic, state):
+        state = torch.tensor(state, dtype=torch.float).to(self.device)
+
+        probs = actor(state)
+        dist = Categorical(probs)
+        action = dist.sample()
+
+        value = critic(state)
+
+        entropy = dist.entropy().mean()
+
+        return action.cpu().detach().numpy(), value.cpu().detach().numpy(), entropy.cpu().detach().numpy(), dist.log_prob(action).cpu().detach().numpy()
+    
+    def reward_to_go(self, rewards, dones, gamma=1.0, normalize=False):
+        rewards_to_go = []
+        cumulative_reward = 0
+        for reward, done in zip(reversed(rewards), reversed(dones)):
+            cumulative_reward = reward + gamma * (1 - done) * cumulative_reward
+            rewards_to_go.insert(0, cumulative_reward)
+
+        if normalize:
+            rewards_to_go = (rewards_to_go - np.mean(rewards_to_go)) / (np.std(rewards_to_go) + 1e-9)
+
+        return rewards_to_go
+
+    def train(
+        self,
+        actor: torch.nn.Module,
+        critic: torch.nn.Module,
+        criterion: torch.nn.modules.loss._Loss,
+        actor_optimizer: torch.optim.Optimizer,
+        critic_optimizer: torch.optim.Optimizer,
+        n_episodes: int,
+        batch_size: int,
+        ppo_epochs: int = 10,
+        gamma: float = 0.99,
+        value_coeff: float = 0.5,
+        entropy_coeff: float = 0.01,
+        clip_param: float = 0.2, 
+        max_steps: int = None,
+    ):
+        tqdm_range = tqdm(range(n_episodes), total=n_episodes)
+
+        self.batch_buffer.reset()
+        scores = []
+        scores_window = deque(maxlen=100)
+        for episode in tqdm_range:
+            state, _ = self.env.reset()
+            self.buffer.reset()
+
+            score = 0
+            step = 0
+            while True:
+                action, value, entropy, log_prob = self.policy(actor, critic, state)
+                next_state, reward, terminated, truncated, _ = self.env.step(action.item())
+
+                done = terminated or truncated
+
+                self.buffer.add(state, action, value, reward, entropy, done, log_prob)
+
+                score += reward
+
+                state = next_state
+
+                if done or step == max_steps:
+                    cache = self.buffer.take()
+                    states, actions, values, rewards, entropies, dones, log_probs = map(np.array, zip(*cache))
+
+                    rewards_to_go = self.reward_to_go(rewards, dones, gamma)
+
+                    self.batch_buffer.extend(states, actions, values, rewards_to_go, entropies, log_probs)
+
+                    if len(self.batch_buffer) >= batch_size:
+                        batch_cache = self.batch_buffer.take()
+                        
+                        batch_states, batch_actions, batch_values, batch_rewards_to_go, batch_entropies, batch_old_log_probs = batch_cache
+
+                        batch_states = torch.tensor(np.array(batch_states), dtype=torch.float).to(self.device)
+                        batch_actions = torch.tensor(np.array(batch_actions), dtype=torch.int64).to(self.device)
+                        batch_values = torch.tensor(np.array(batch_values), dtype=torch.float).to(self.device)
+                        batch_rewards_to_go = torch.tensor(np.array(batch_rewards_to_go), dtype=torch.float).to(self.device)
+                        batch_old_log_probs = torch.tensor(np.array(batch_old_log_probs), dtype=torch.float).to(self.device)
+                        entropy = torch.tensor(np.array(batch_entropies), dtype=torch.float).sum().to(self.device)
+
+                        advantages = batch_rewards_to_go - batch_values.squeeze()
+
+                        for _ in range(ppo_epochs):
+                            probs = actor(batch_states)
+                            dist = Categorical(probs)
+                            new_log_probs = dist.log_prob(batch_actions)
+
+                            ratio = torch.exp(new_log_probs - batch_old_log_probs)
+                            surr1 = ratio * advantages
+                            surr2 = torch.clamp(ratio, 1.0 - clip_param, 1.0 + clip_param) * advantages
+                            actor_loss = -torch.min(surr1, surr2).mean()
+
+                            critic_loss = criterion(critic(batch_states).squeeze(), batch_rewards_to_go)
+
+                            loss = actor_loss + value_coeff * critic_loss - entropy_coeff * entropy
+
+                            actor_optimizer.zero_grad()
+                            critic_optimizer.zero_grad()
+                            loss.backward()
+                            actor_optimizer.step()
+                            critic_optimizer.step()
 
                         self.batch_buffer.reset()
 
