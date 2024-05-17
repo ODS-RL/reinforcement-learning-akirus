@@ -702,7 +702,7 @@ class A2CTrainer(BaseTrainer):
 
         entropy = dist.entropy().mean()
 
-        return action.cpu().detach().numpy(), value.cpu().detach().numpy(), entropy.cpu().detach().numpy()
+        return action.cpu().detach().numpy(), value.cpu().detach().numpy()
     
     def reward_to_go(self, rewards, dones, gamma=1.0, noralize=False):
         # https://subscription.packtpub.com/book/data/9781789533583/1/ch01lvl1sec05/identifying-reward-functions-and-the-concept-of-discounted-rewards
@@ -746,12 +746,12 @@ class A2CTrainer(BaseTrainer):
             score = 0
             step = 0
             while True:
-                action, value, entropy = self.policy(actor, critic, state)
+                action, value = self.policy(actor, critic, state)
                 next_state, reward, terminated, truncated, _ = self.env.step(action.item())
 
                 done = terminated or truncated
 
-                self.buffer.add(state, action, value, reward, entropy, done)
+                self.buffer.add(state, action, value, reward, done)
 
                 score += reward
 
@@ -759,22 +759,25 @@ class A2CTrainer(BaseTrainer):
 
                 if done or step == max_steps:
                     cache = self.buffer.take()
-                    states, actions, values, rewards, entropies, dones = map(np.array, zip(*cache))
+                    states, actions, values, rewards, dones = map(np.array, zip(*cache))
 
                     rewards_to_go = self.reward_to_go(rewards, dones, gamma)
 
-                    self.batch_buffer.extend(states, actions, values, rewards_to_go, entropies)
+                    self.batch_buffer.extend(states, actions, values, rewards_to_go)
 
                     if len(self.batch_buffer) >= batch_size:
                         batch_cache = self.batch_buffer.take()
 
-                        batch_states, batch_actions, batch_values, batch_rewards_to_go, batch_entropies = batch_cache
+                        batch_states, batch_actions, batch_values, batch_rewards_to_go = batch_cache
 
                         batch_states = torch.tensor(np.array(batch_states), dtype=torch.float).to(self.device)
                         batch_actions = torch.tensor(np.array(batch_actions), dtype=torch.int64).to(self.device)
                         batch_values = torch.tensor(np.array(batch_values), dtype=torch.float).to(self.device)
                         batch_rewards_to_go = torch.tensor(np.array(batch_rewards_to_go), dtype=torch.float).to(self.device)
-                        entropy = torch.tensor(np.array(batch_entropies), dtype=torch.float).sum().to(self.device)
+                      
+                        probs = actor(batch_states)
+                        dist = Categorical(probs)
+                        entropy = dist.entropy().mean()
 
 
                         advantages = batch_rewards_to_go - batch_values.squeeze()
@@ -821,9 +824,7 @@ class PPOTrainer(BaseTrainer):
 
         value = critic(state)
 
-        entropy = dist.entropy().mean()
-
-        return action.cpu().detach().numpy(), value.cpu().detach().numpy(), entropy.cpu().detach().numpy(), dist.log_prob(action).cpu().detach().numpy()
+        return action.cpu().detach().numpy(), value.cpu().detach().numpy(), dist.log_prob(action).cpu().detach().numpy() # The same as torch.log(probs)
     
     def reward_to_go(self, rewards, dones, gamma=1.0, normalize=False):
         rewards_to_go = []
@@ -865,12 +866,12 @@ class PPOTrainer(BaseTrainer):
             score = 0
             step = 0
             while True:
-                action, value, entropy, log_prob = self.policy(actor, critic, state)
+                action, value, log_prob = self.policy(actor, critic, state)
                 next_state, reward, terminated, truncated, _ = self.env.step(action.item())
 
                 done = terminated or truncated
 
-                self.buffer.add(state, action, value, reward, entropy, done, log_prob)
+                self.buffer.add(state, action, value, reward, done, log_prob)
 
                 score += reward
 
@@ -878,30 +879,30 @@ class PPOTrainer(BaseTrainer):
 
                 if done or step == max_steps:
                     cache = self.buffer.take()
-                    states, actions, values, rewards, entropies, dones, log_probs = map(np.array, zip(*cache))
+                    states, actions, values, rewards, dones, log_probs = map(np.array, zip(*cache))
 
                     rewards_to_go = self.reward_to_go(rewards, dones, gamma)
 
-                    self.batch_buffer.extend(states, actions, values, rewards_to_go, entropies, log_probs)
+                    self.batch_buffer.extend(states, actions, values, rewards_to_go, log_probs)
 
                     if len(self.batch_buffer) >= batch_size:
                         batch_cache = self.batch_buffer.take()
                         
-                        batch_states, batch_actions, batch_values, batch_rewards_to_go, batch_entropies, batch_old_log_probs = batch_cache
+                        batch_states, batch_actions, batch_values, batch_rewards_to_go, batch_old_log_probs = batch_cache
 
                         batch_states = torch.tensor(np.array(batch_states), dtype=torch.float).to(self.device)
                         batch_actions = torch.tensor(np.array(batch_actions), dtype=torch.int64).to(self.device)
                         batch_values = torch.tensor(np.array(batch_values), dtype=torch.float).to(self.device)
                         batch_rewards_to_go = torch.tensor(np.array(batch_rewards_to_go), dtype=torch.float).to(self.device)
                         batch_old_log_probs = torch.tensor(np.array(batch_old_log_probs), dtype=torch.float).to(self.device)
-                        entropy = torch.tensor(np.array(batch_entropies), dtype=torch.float).sum().to(self.device)
 
                         advantages = batch_rewards_to_go - batch_values.squeeze()
 
                         for _ in range(ppo_epochs):
                             probs = actor(batch_states)
                             dist = Categorical(probs)
-                            new_log_probs = dist.log_prob(batch_actions)
+                            new_log_probs = dist.log_prob(batch_actions) # The same as torch.log(probs)
+                            entropy = dist.entropy().mean()
 
                             ratio = torch.exp(new_log_probs - batch_old_log_probs)
                             surr1 = ratio * advantages
