@@ -214,7 +214,7 @@ class SnakeGameEnvironment(BaseEnvironment):
         reward = 0
         terminated = False
         truncated = self._state.steps >= self.max_steps  # TODO: use wrapper
-        info = None  # not implemented, not used (plug)
+        info = {}  # not implemented, not used (plug)
 
         self.handle_input(action)
         self.update_head()
@@ -238,7 +238,14 @@ class SnakeGameEnvironment(BaseEnvironment):
         else:
             self._state.snake.pop(0)
 
-        self.render()
+        info["frame"] = self.render()
+        try:
+            info["frame"] = np.transpose(
+                info["frame"],  # type: ignore
+                (1, 0, 2),
+            )  # [W, H, C] -> [H, W, C]
+        except ValueError:
+            ...
         self.clock.tick(self.speed)
 
         return (self.state, reward, terminated, truncated, info)
@@ -299,6 +306,7 @@ class SnakeGameEnvironment(BaseEnvironment):
 
     def render(self, save_path=None):
         self._state.steps += 1
+        frame = None
 
         self.screen.fill(self.colors["beige"])
         pygame.draw.rect(
@@ -327,6 +335,9 @@ class SnakeGameEnvironment(BaseEnvironment):
 
         if save_path is not None:
             pygame.image.save(self.screen, save_path)
+        else:
+            frame = pygame.surfarray.array3d(self.screen)
+        return frame
 
 
 class SnakeGame(SnakeGameEnvironment):
