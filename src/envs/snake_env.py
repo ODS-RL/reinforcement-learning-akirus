@@ -1,23 +1,43 @@
-import pygame
-import random
-import numpy as np
-from gymnasium import spaces
-from src.envs.base_env import BaseEnvironment
 # Additional resources
 # https://cs230.stanford.edu/projects_fall_2021/reports/103085287.pdf
 # https://ceasjournal.com/index.php/CEAS/article/download/13/10)
 
+import random
+
+from copy import deepcopy
+
+import numpy as np
+import pygame
+
+from gymnasium import spaces
+
+from src.envs.base_env import BaseEnvironment
+
+
+class SnakeState:
+    head: tuple | None = None
+    snake: list | None = None
+    food: tuple | None = None
+    direction: str | None = None
+    score: float | None = None
+    steps: int | None = None
+
+    def __repr__(self) -> str:
+        return f"{self.steps, self.food, self.direction, self.head, self.snake, self.score}"
+
 
 class SnakeGameEnvironment(BaseEnvironment):
-    def __init__(self, width, height, block_size, speed):
+    def __init__(self, width, height, block_size, speed, max_steps=200):
         pygame.init()
         self.width = width
         self.height = height
         self.block_size = block_size
         self.speed = speed
 
-        self.head = (width // 2, height // 2)
-        self.snake = [self.head]
+        self._dump = None
+        self._state = SnakeState()
+        self._state.head = (width // 2, height // 2)
+        self._state.snake = [self._state.head]
 
         self.screen = pygame.display.set_mode((width, height))
         self.clock = pygame.time.Clock()
@@ -35,20 +55,24 @@ class SnakeGameEnvironment(BaseEnvironment):
             "navy": (20, 30, 70),
         }
 
-        self.score = 0
-        self.food = None
+        self._state.score = 0
+        self._state.food = None
         self.place_food()
+        self._state.steps = 0
 
         self.actions = ("left", "straight", "right")
-        self.action_space = spaces.Discrete(3)
+        self.action_space = spaces.Discrete(len(self.actions))
         self.directions = ("up", "down", "left", "right")
-        self.direction = random.choice(self.directions)
+        self._state.direction = random.choice(self.directions)  # type: ignore
 
         self.reward = {"collision": -10, "food": 10}
+        self.max_steps = int(
+            np.ceil(width * height * np.sqrt(2)).round()
+        )  # TODO: use wrapper
 
     def check_collision(self, segment=None):
         if segment is None:
-            segment = self.head
+            segment = self._state.head
         if (
             segment[0] < 0
             or segment[0] >= self.width
@@ -57,7 +81,7 @@ class SnakeGameEnvironment(BaseEnvironment):
         ):
             return True
 
-        if segment in self.snake[:-1]:
+        if segment in self._state.snake[:-1]:
             return True
 
         return False
@@ -72,20 +96,30 @@ class SnakeGameEnvironment(BaseEnvironment):
             * self.block_size
         )
 
-        if (x, y) in self.snake:
+        if (x, y) in self._state.snake:
             self.place_food()
         else:
-            self.food = (x, y)
+            self._state.food = (x, y)
 
-    def reset(self) -> None:
+    def reset(self, state: SnakeState | None = None) -> None:
         info = None  # not implemented, not used (plug)
-        self.score = 0
-        self.head = (self.width // 2, self.height // 2)
-        self.snake = [self.head]
-        self.direction = random.choice(self.directions)
-        self.place_food()
+        if isinstance(state, SnakeState):
+            # Restore state
+            self._state = deepcopy(state)
+        else:
+            # Initial state
+            self._state = SnakeState()
+            self._state.score = 0
+            self._state.head = (self.width // 2, self.height // 2)
+            self._state.snake = [self._state.head]
+            self._state.direction = random.choice(self.directions)
+            self.place_food()  # initialize self._state.food
+            self._state.steps = 0
 
         return self.state, info
+
+    def dump(self) -> SnakeState:
+        return deepcopy(self._state)
 
     @property
     def state(self) -> None:
@@ -93,46 +127,72 @@ class SnakeGameEnvironment(BaseEnvironment):
         States logic was borrowed from
         https://cs230.stanford.edu/projects_fall_2021/reports/103085287.pdf
         """
-        up_segment = (self.head[0], self.head[1] - self.block_size)
-        down_segment = (self.head[0], self.head[1] + self.block_size)
-        left_segment = (self.head[0] - self.block_size, self.head[1])
-        right_segment = (self.head[0] + self.block_size, self.head[1])
+        up_segment = (self._state.head[0], self._state.head[1] - self.block_size)
+        down_segment = (self._state.head[0], self._state.head[1] + self.block_size)
+        left_segment = (self._state.head[0] - self.block_size, self._state.head[1])
+        right_segment = (self._state.head[0] + self.block_size, self._state.head[1])
 
         return tuple(
             np.array(
                 [
-                    # Danger is on the straight
-                    (self.check_collision(up_segment) and self.direction == "up")
-                    or (self.check_collision(down_segment) and self.direction == "down")
-                    or (self.check_collision(left_segment) and self.direction == "left")
+                    # Danger is ahead
+                    (self.check_collision(up_segment) and self._state.direction == "up")
+                    or (
+                        self.check_collision(down_segment)
+                        and self._state.direction == "down"
+                    )
+                    or (
+                        self.check_collision(left_segment)
+                        and self._state.direction == "left"
+                    )
                     or (
                         self.check_collision(right_segment)
-                        and self.direction == "right"
+                        and self._state.direction == "right"
                     ),
                     # Danger is on the right
-                    (self.check_collision(up_segment) and self.direction == "left")
-                    or (
-                        self.check_collision(down_segment) and self.direction == "right"
+                    (
+                        self.check_collision(up_segment)
+                        and self._state.direction == "left"
                     )
-                    or (self.check_collision(left_segment) and self.direction == "down")
-                    or (self.check_collision(right_segment) and self.direction == "up"),
-                    # Danger is on the left
-                    (self.check_collision(up_segment) and self.direction == "right")
-                    or (self.check_collision(down_segment) and self.direction == "left")
-                    or (self.check_collision(left_segment) and self.direction == "up")
                     or (
-                        self.check_collision(right_segment) and self.direction == "down"
+                        self.check_collision(down_segment)
+                        and self._state.direction == "right"
+                    )
+                    or (
+                        self.check_collision(left_segment)
+                        and self._state.direction == "down"
+                    )
+                    or (
+                        self.check_collision(right_segment)
+                        and self._state.direction == "up"
+                    ),
+                    # Danger is on the left
+                    (
+                        self.check_collision(up_segment)
+                        and self._state.direction == "right"
+                    )
+                    or (
+                        self.check_collision(down_segment)
+                        and self._state.direction == "left"
+                    )
+                    or (
+                        self.check_collision(left_segment)
+                        and self._state.direction == "up"
+                    )
+                    or (
+                        self.check_collision(right_segment)
+                        and self._state.direction == "down"
                     ),
                     # Food location
-                    self.head[0] < self.food[0],
-                    self.head[0] > self.food[0],
-                    self.head[1] < self.food[1],
-                    self.head[1] > self.food[1],
+                    self._state.head[0] < self._state.food[0],
+                    self._state.head[0] > self._state.food[0],
+                    self._state.head[1] < self._state.food[1],
+                    self._state.head[1] > self._state.food[1],
                     # Direction
-                    self.direction == "left",
-                    self.direction == "right",
-                    self.direction == "up",
-                    self.direction == "down",
+                    self._state.direction == "left",
+                    self._state.direction == "right",
+                    self._state.direction == "up",
+                    self._state.direction == "down",
                 ]
             ).astype(int)
         )
@@ -153,13 +213,13 @@ class SnakeGameEnvironment(BaseEnvironment):
         """
         reward = 0
         terminated = False
-        truncated = False  # not implemented, not used (plug)
+        truncated = self._state.steps >= self.max_steps  # TODO: use wrapper
         info = None  # not implemented, not used (plug)
 
         self.handle_input(action)
         self.update_head()
 
-        self.snake.append(self.head)
+        self._state.snake.append(self._state.head)
 
         if self.check_collision():
             reward = self.reward["collision"]
@@ -167,13 +227,16 @@ class SnakeGameEnvironment(BaseEnvironment):
 
             return (self.state, reward, terminated, truncated, info)
 
-        if self.head[0] == self.food[0] and self.head[1] == self.food[1]:
+        if (
+            self._state.head[0] == self._state.food[0]
+            and self._state.head[1] == self._state.food[1]
+        ):
             reward = self.reward["food"]
 
             self.place_food()
-            self.score += 1
+            self._state.score += 1
         else:
-            self.snake.pop(0)
+            self._state.snake.pop(0)
 
         self.render()
         self.clock.tick(self.speed)
@@ -188,56 +251,77 @@ class SnakeGameEnvironment(BaseEnvironment):
 
         action = action if isinstance(action, str) else self.actions[action]
 
-        if self.direction == "right":
+        if self._state.direction == "right":
             if action == "left":
-                self.direction = "up"
+                self._state.direction = "up"
             elif action == "right":
-                self.direction = "down"
+                self._state.direction = "down"
 
-        elif self.direction == "left":
+        elif self._state.direction == "left":
             if action == "left":
-                self.direction = "down"
+                self._state.direction = "down"
             elif action == "right":
-                self.direction = "up"
+                self._state.direction = "up"
 
-        elif self.direction == "up":
+        elif self._state.direction == "up":
             if action == "left":
-                self.direction = "left"
+                self._state.direction = "left"
             elif action == "right":
-                self.direction = "right"
+                self._state.direction = "right"
 
-        elif self.direction == "down":
+        elif self._state.direction == "down":
             if action == "left":
-                self.direction = "right"
+                self._state.direction = "right"
             elif action == "right":
-                self.direction = "left"
+                self._state.direction = "left"
 
     def update_head(self):
-        if self.direction == "right":
-            self.head = (self.head[0] + self.block_size, self.head[1])
-        elif self.direction == "left":
-            self.head = (self.head[0] - self.block_size, self.head[1])
-        elif self.direction == "up":
-            self.head = (self.head[0], self.head[1] - self.block_size)
-        elif self.direction == "down":
-            self.head = (self.head[0], self.head[1] + self.block_size)
+        if self._state.direction == "right":
+            self._state.head = (
+                self._state.head[0] + self.block_size,
+                self._state.head[1],
+            )
+        elif self._state.direction == "left":
+            self._state.head = (
+                self._state.head[0] - self.block_size,
+                self._state.head[1],
+            )
+        elif self._state.direction == "up":
+            self._state.head = (
+                self._state.head[0],
+                self._state.head[1] - self.block_size,
+            )
+        elif self._state.direction == "down":
+            self._state.head = (
+                self._state.head[0],
+                self._state.head[1] + self.block_size,
+            )
 
     def render(self, save_path=None):
+        self._state.steps += 1
+
         self.screen.fill(self.colors["beige"])
         pygame.draw.rect(
             self.screen,
             self.colors["purple"],
-            [self.food[0], self.food[1], self.block_size, self.block_size],
+            [
+                self._state.food[0],
+                self._state.food[1],
+                self.block_size,
+                self.block_size,
+            ],
         )
 
-        for segment in self.snake:
+        for segment in self._state.snake:
             pygame.draw.rect(
                 self.screen,
                 self.colors["light green"],
                 [segment[0], segment[1], self.block_size, self.block_size],
             )
 
-        value = self.font.render("Score: " + str(self.score), True, self.colors["navy"])
+        value = self.font.render(
+            "Score: " + str(self._state.score), True, self.colors["navy"]
+        )
         self.screen.blit(value, [0, 0])
         pygame.display.flip()
 
@@ -251,16 +335,19 @@ class SnakeGame(SnakeGameEnvironment):
             self.handle_input()
             self.update_head()
 
-            self.snake.append(self.head)
+            self._state.snake.append(self._state.head)
 
             if self.check_collision():
                 break  # FIXME: edit this
 
-            if self.head[0] == self.food[0] and self.head[1] == self.food[1]:
+            if (
+                self._state.head[0] == self._state.food[0]
+                and self._state.head[1] == self._state.food[1]
+            ):
                 self.place_food()
-                self.score += 1
+                self._state.score += 1
             else:
-                self.snake.pop(0)
+                self._state.snake.pop(0)
 
             self.render()
             self.clock.tick(self.speed)
@@ -271,14 +358,24 @@ class SnakeGame(SnakeGameEnvironment):
                 pygame.quit()
                 quit()
             if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_LEFT and self.direction != "right":
-                    self.direction = "left"
-                elif event.key == pygame.K_RIGHT and self.direction != "left":
-                    self.direction = "right"
-                elif event.key == pygame.K_UP and self.direction != "down":
-                    self.direction = "up"
-                elif event.key == pygame.K_DOWN and self.direction != "up":
-                    self.direction = "down"
+                if event.key == pygame.K_LEFT and self._state.direction != "right":
+                    self._state.direction = "left"
+                elif event.key == pygame.K_RIGHT and self._state.direction != "left":
+                    self._state.direction = "right"
+                elif event.key == pygame.K_UP and self._state.direction != "down":
+                    self._state.direction = "up"
+                elif event.key == pygame.K_DOWN and self._state.direction != "up":
+                    self._state.direction = "down"
+                elif event.key == pygame.K_s:
+                    self._dump = self.dump()
+                    print(f"DEBUG: save dump = {self._dump}")
+                elif event.key == pygame.K_l:
+                    if isinstance(self._dump, SnakeState):
+                        # self._state = self._dump
+                        self.reset(self._dump)
+                        print(f"DEBUG: load dump = {self._dump}")
+                    else:
+                        print("WARNING: dump is not valid. Failed to load!")
 
 
 if __name__ == "__main__":
