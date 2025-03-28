@@ -12,19 +12,20 @@ from src.buffers import ReplayMemory, Buffer, ExtendableBuffer
 
 # TODO: Split BaseTrainer into BaseQLearningTrainer and BasePolicyOptimizationTrainer
 
+
 class BaseTrainer:
     def __init__(self, env: BaseEnvironment) -> None:
         self.env = env
         self.epsilon_decays = {
             "exponential": self.exponential_decay,
-            "linear": self.linear_decay
+            "linear": self.linear_decay,
         }
 
     def greedy_policy(self, q_table: np.ndarray, state: tuple[int, int]) -> int:
         return np.argmax(q_table[state])
 
-    def epsilon_greedy_policy(self,
-        q_table: np.ndarray, state: tuple[int, int], epsilon: float
+    def epsilon_greedy_policy(
+        self, q_table: np.ndarray, state: tuple[int, int], epsilon: float
     ) -> int:
         """Epsilon-greedy Action Selection"""
         if np.random.uniform(0, 1) < epsilon:
@@ -32,35 +33,50 @@ class BaseTrainer:
             return self.env.action_space.sample()
         else:
             return self.greedy_policy(q_table, state)
-        
-    def exponential_decay(self, step, epsilon_start: float, epsilon_end: float, n_steps: int, decay_rate: int = 1) -> float:
+
+    def exponential_decay(
+        self,
+        step,
+        epsilon_start: float,
+        epsilon_end: float,
+        n_steps: int,
+        decay_rate: int = 1,
+    ) -> float:
         assert 1 >= epsilon_start >= epsilon_end >= 0
         assert 1 >= decay_rate >= 0
 
         if decay_rate == 0:
-            return self.linear_decay(step, epsilon_start, epsilon_end, n_steps, decay_rate)
+            return self.linear_decay(
+                step, epsilon_start, epsilon_end, n_steps, decay_rate
+            )
 
         magnitude = n_steps
         # https://www.desmos.com/calculator/ta2owwskqm
         # https://math.stackexchange.com/questions/4014286/exponential-between-2-points
         # return epsilon_end + (epsilon_start - epsilon_end) * math.exp(-1. * step_idx * decay_rate)
-        return (epsilon_end - epsilon_start) * (np.exp(-decay_rate * magnitude * step/n_steps) - 1) / (np.exp(-decay_rate * magnitude) - 1) + epsilon_start
+        return (epsilon_end - epsilon_start) * (
+            np.exp(-decay_rate * magnitude * step / n_steps) - 1
+        ) / (np.exp(-decay_rate * magnitude) - 1) + epsilon_start
 
-    def linear_decay(self, step: int, epsilon_start: float, epsilon_end: float, n_steps: int, decay_rate: int = 1):
+    def linear_decay(
+        self,
+        step: int,
+        epsilon_start: float,
+        epsilon_end: float,
+        n_steps: int,
+        decay_rate: int = 1,
+    ):
         assert 1 >= epsilon_start >= epsilon_end >= 0
         assert 1 >= decay_rate >= 0
 
         if decay_rate == 1:
             return epsilon_end
-    
+
         fraction = min(float(step) / int((1 - decay_rate) * n_steps), 1.0)
         return epsilon_start + fraction * (epsilon_end - epsilon_start)
-        
-    def train(
-        self
-    ) -> np.ndarray:
+
+    def train(self) -> np.ndarray:
         raise NotImplementedError
-    
 
 
 class QLearningTrainer(BaseTrainer):
@@ -83,7 +99,13 @@ class QLearningTrainer(BaseTrainer):
         for episode in tqdm(range(n_episodes), total=n_episodes):
             state, _ = self.env.reset()
 
-            epsilon = self.epsilon_decays[decay_epsilon](episode, max_epsilon, min_epsilon, n_episodes, decay_rate) if decay_epsilon != "constant" else epsilon
+            epsilon = (
+                self.epsilon_decays[decay_epsilon](
+                    episode, max_epsilon, min_epsilon, n_episodes, decay_rate
+                )
+                if decay_epsilon != "constant"
+                else epsilon
+            )
 
             step = 0
             while True:
@@ -94,7 +116,9 @@ class QLearningTrainer(BaseTrainer):
 
                 # The Bellman Equation
                 q_table[state][action] += learning_rate * (
-                    reward + gamma * np.max(q_table[next_state]) - q_table[state][action]
+                    reward
+                    + gamma * np.max(q_table[next_state])
+                    - q_table[state][action]
                 )
 
                 state = next_state
@@ -108,15 +132,17 @@ class QLearningTrainer(BaseTrainer):
 
 
 class DQNTrainer(BaseTrainer):
-    def __init__(self, env: BaseEnvironment, memory: ReplayMemory = None, device: str = None) -> None:
+    def __init__(
+        self, env: BaseEnvironment, memory: ReplayMemory = None, device: str = None
+    ) -> None:
         super().__init__(env)
         self.memory = memory
         self.device = device
 
     def greedy_policy(self, model, state: tuple[int, int]) -> int:
         state = torch.tensor(state, dtype=torch.float).to(self.device)
-        return torch.argmax(model(state))    
-        
+        return torch.argmax(model(state))
+
     def train(
         self,
         model: torch.nn.Module,
@@ -134,18 +160,26 @@ class DQNTrainer(BaseTrainer):
         tqdm_range = tqdm(range(n_episodes), total=n_episodes)
 
         scores = []
-        scores_window = deque(maxlen = 100)
+        scores_window = deque(maxlen=100)
         for episode in tqdm_range:
             state, _ = self.env.reset()
 
-            epsilon = self.epsilon_decays[decay_epsilon](episode, max_epsilon, min_epsilon, n_episodes, decay_rate) if decay_epsilon != "constant" else epsilon
+            epsilon = (
+                self.epsilon_decays[decay_epsilon](
+                    episode, max_epsilon, min_epsilon, n_episodes, decay_rate
+                )
+                if decay_epsilon != "constant"
+                else epsilon
+            )
 
             step = 0
             score = 0
             while True:
                 action = self.epsilon_greedy_policy(model, state, epsilon)
-                
-                next_state, reward, terminated, truncated, _  = self.env.step(action.item())
+
+                next_state, reward, terminated, truncated, _ = self.env.step(
+                    action.item()
+                )
 
                 done = terminated or truncated
                 score += reward
@@ -159,7 +193,9 @@ class DQNTrainer(BaseTrainer):
                         # for transition in transitions:
                         #     self._train(model, optimizer, criterion, gamma, transition)
 
-                        self._batch_train(model, optimizer, criterion, gamma, transitions)
+                        self._batch_train(
+                            model, optimizer, criterion, gamma, transitions
+                        )
                 else:
                     self._train(
                         model=model,
@@ -175,13 +211,13 @@ class DQNTrainer(BaseTrainer):
                     break
 
                 step += 1
-                
+
             scores.append(score)
-            scores_window.append(score)   
+            scores_window.append(score)
             tqdm_range.set_description(f"Score: {np.mean(scores_window):.3f}")
 
         return scores
-    
+
     def _train(
         self,
         model: torch.nn.Module,
@@ -193,9 +229,11 @@ class DQNTrainer(BaseTrainer):
         state, action, reward, next_state, done = transition
         prediction = model(torch.tensor(state, dtype=torch.float).to(self.device))
         target = prediction.clone()
-        
+
         if not done:
-            q = reward + gamma * torch.max(model(torch.tensor(next_state, dtype=torch.float).to(self.device)))
+            q = reward + gamma * torch.max(
+                model(torch.tensor(next_state, dtype=torch.float).to(self.device))
+            )
         else:
             q = reward
 
@@ -207,34 +245,38 @@ class DQNTrainer(BaseTrainer):
         optimizer.step()
 
         return loss
-    
+
     def _batch_train(
         self,
         model: torch.nn.Module,
         optimizer: torch.optim.Optimizer,
         criterion: torch.nn.modules.loss._Loss,
         gamma,
-        transitions
+        transitions,
     ):
         states, actions, rewards, next_states, dones = map(list, zip(*transitions))
-        
-        states_tensor = torch.tensor(np.array(states), dtype=torch.float32).to(self.device)
-        next_states_tensor = torch.tensor(np.array(next_states), dtype=torch.float).to(self.device)
+
+        states_tensor = torch.tensor(np.array(states), dtype=torch.float32).to(
+            self.device
+        )
+        next_states_tensor = torch.tensor(np.array(next_states), dtype=torch.float).to(
+            self.device
+        )
         rewards_tensor = torch.tensor(rewards, dtype=torch.float).to(self.device)
         dones_tensor = torch.tensor(dones, dtype=torch.bool).to(self.device)
-        
+
         prediction = model(states_tensor)
-        
+
         target = prediction.clone()
-        
+
         next_state_values = model(next_states_tensor)
 
         max_next_state_values = torch.max(next_state_values, dim=1)[0]
 
         q_values = rewards_tensor + gamma * max_next_state_values * (~dones_tensor)
-        
+
         target[range(len(actions)), actions] = q_values
-        
+
         optimizer.zero_grad()
         loss = criterion(prediction, target.detach())
         loss.backward()
@@ -243,16 +285,19 @@ class DQNTrainer(BaseTrainer):
 
 class DDQNTrainer(BaseTrainer):
     """Double DQN Trainer"""
+
     # https://arxiv.org/pdf/1509.06461.pdf (Deep Reinforcement Learning with Double Q-learning)
-    def __init__(self, env: BaseEnvironment, memory: ReplayMemory = None, device = None) -> None:
+    def __init__(
+        self, env: BaseEnvironment, memory: ReplayMemory = None, device=None
+    ) -> None:
         super().__init__(env)
         self.memory = memory
         self.device = device
 
     def greedy_policy(self, model, state: tuple[int, int]) -> int:
         state = torch.tensor(state, dtype=torch.float).to(self.device)
-        return torch.argmax(model(state))    
-                
+        return torch.argmax(model(state))
+
     def train(
         self,
         online_model: torch.nn.Module,
@@ -261,7 +306,7 @@ class DDQNTrainer(BaseTrainer):
         criterion: torch.nn.modules.loss._Loss,
         n_episodes: int,
         gamma: float,
-        tau = 0.005,
+        tau=0.005,
         max_steps: int = None,
         epsilon: float = None,
         max_epsilon: float = None,
@@ -273,24 +318,32 @@ class DDQNTrainer(BaseTrainer):
         tqdm_range = tqdm(range(n_episodes), total=n_episodes)
 
         scores = []
-        scores_window = deque(maxlen = 100)
+        scores_window = deque(maxlen=100)
         for episode in tqdm_range:
             state, _ = self.env.reset()
 
-            epsilon = self.epsilon_decays[decay_epsilon](episode, max_epsilon, min_epsilon, n_episodes, decay_rate) if decay_epsilon != "constant" else epsilon
+            epsilon = (
+                self.epsilon_decays[decay_epsilon](
+                    episode, max_epsilon, min_epsilon, n_episodes, decay_rate
+                )
+                if decay_epsilon != "constant"
+                else epsilon
+            )
 
             score = 0
             step = 0
             while True:
                 action: int = self.epsilon_greedy_policy(online_model, state, epsilon)
 
-                next_state, reward, terminated, truncated, _  = self.env.step(action.item())
+                next_state, reward, terminated, truncated, _ = self.env.step(
+                    action.item()
+                )
 
                 done = terminated or truncated
                 score += reward
 
                 if self.memory is not None:
-                    self.memory.add( state, action, reward, next_state, done)
+                    self.memory.add(state, action, reward, next_state, done)
 
                     if len(self.memory) >= self.memory.batch_size:
                         transitions = self.memory.sample()
@@ -304,7 +357,7 @@ class DDQNTrainer(BaseTrainer):
                             optimizer=optimizer,
                             criterion=criterion,
                             gamma=gamma,
-                            transitions=transitions
+                            transitions=transitions,
                         )
 
                 else:
@@ -316,7 +369,7 @@ class DDQNTrainer(BaseTrainer):
                         gamma=gamma,
                         transition=(state, action, reward, next_state, done),
                     )
-                
+
                 if step % n_steps_update == 0:
                     self._soft_update(target_model, online_model, tau)
 
@@ -326,20 +379,24 @@ class DDQNTrainer(BaseTrainer):
                     break
 
                 step += 1
-            
+
             scores.append(score)
-            scores_window.append(score)   
+            scores_window.append(score)
             tqdm_range.set_description(f"Score: {np.mean(scores_window):.3f}")
 
         return scores
-    
-    def _soft_update(self, target: torch.nn.Module, source: torch.nn.Module, tau: float):
+
+    def _soft_update(
+        self, target: torch.nn.Module, source: torch.nn.Module, tau: float
+    ):
         target_weights = target.state_dict()
         source_weights = source.state_dict()
         for key in source_weights:
-            target_weights[key] = source_weights[key]*tau + target_weights[key]*(1-tau)
+            target_weights[key] = source_weights[key] * tau + target_weights[key] * (
+                1 - tau
+            )
         target.load_state_dict(target_weights)
-    
+
     def _train(
         self,
         online_model: torch.nn.Module,
@@ -350,10 +407,16 @@ class DDQNTrainer(BaseTrainer):
         transition,
     ):
         state, action, reward, next_state, done = transition
-        prediction = online_model(torch.tensor(state, dtype=torch.float).to(self.device))
-        
+        prediction = online_model(
+            torch.tensor(state, dtype=torch.float).to(self.device)
+        )
+
         if not done:
-            q = reward + gamma * torch.max(target_model(torch.tensor(next_state, dtype=torch.float).to(self.device)))
+            q = reward + gamma * torch.max(
+                target_model(
+                    torch.tensor(next_state, dtype=torch.float).to(self.device)
+                )
+            )
         else:
             q = reward
 
@@ -365,7 +428,6 @@ class DDQNTrainer(BaseTrainer):
         loss.backward()
         optimizer.step()
 
-    
     def _batch_train(
         self,
         online_model: torch.nn.Module,
@@ -376,9 +438,13 @@ class DDQNTrainer(BaseTrainer):
         transitions,
     ):
         states, actions, rewards, next_states, dones = map(list, zip(*transitions))
-        
-        states_tensor = torch.tensor(np.array(states), dtype=torch.float).to(self.device)
-        next_states_tensor = torch.tensor(np.array(next_states), dtype=torch.float).to(self.device)
+
+        states_tensor = torch.tensor(np.array(states), dtype=torch.float).to(
+            self.device
+        )
+        next_states_tensor = torch.tensor(np.array(next_states), dtype=torch.float).to(
+            self.device
+        )
         rewards_tensor = torch.tensor(rewards, dtype=torch.float).to(self.device)
         dones_tensor = torch.tensor(dones, dtype=torch.bool).to(self.device)
 
@@ -388,7 +454,9 @@ class DDQNTrainer(BaseTrainer):
 
         max_next_state_values = torch.max(next_state_values, dim=1)[0]
 
-        q_values = rewards_tensor + (1 - dones_tensor.float()) * gamma * max_next_state_values
+        q_values = (
+            rewards_tensor + (1 - dones_tensor.float()) * gamma * max_next_state_values
+        )
 
         targets = predictions.clone()
 
@@ -420,7 +488,13 @@ class SARSATrainer(BaseTrainer):
         for episode in tqdm(range(n_episodes), total=n_episodes):
             state, _ = self.env.reset()
 
-            epsilon = self.epsilon_decays[decay_epsilon](episode, max_epsilon, min_epsilon, n_episodes, decay_rate) if decay_epsilon != "constant" else epsilon
+            epsilon = (
+                self.epsilon_decays[decay_epsilon](
+                    episode, max_epsilon, min_epsilon, n_episodes, decay_rate
+                )
+                if decay_epsilon != "constant"
+                else epsilon
+            )
             action = self.epsilon_greedy_policy(q_table, state, epsilon)
 
             step = 0
@@ -432,7 +506,9 @@ class SARSATrainer(BaseTrainer):
                 next_action = self.epsilon_greedy_policy(q_table, next_state, epsilon)
 
                 q_table[state][action] += learning_rate * (
-                    reward + gamma * q_table[next_state][next_action] - q_table[state][action]
+                    reward
+                    + gamma * q_table[next_state][next_action]
+                    - q_table[state][action]
                 )
 
                 state = next_state
@@ -445,9 +521,12 @@ class SARSATrainer(BaseTrainer):
 
         return q_table
 
+
 class DDPGTrainer(BaseTrainer):
     # https://spinningup.openai.com/en/latest/algorithms/ddpg.html
-    def __init__(self, env: BaseEnvironment, memory: ReplayMemory = None, device = None) -> None:
+    def __init__(
+        self, env: BaseEnvironment, memory: ReplayMemory = None, device=None
+    ) -> None:
         super().__init__(env)
         self.memory = memory
         self.device = device
@@ -457,9 +536,15 @@ class DDPGTrainer(BaseTrainer):
         lower_bound = self.env.action_space.low.item()
         upper_bound = self.env.action_space.high.item()
         return np.clip(action + noise, lower_bound, upper_bound)
-    
+
     def policy(self, actor, state):
-        return actor(torch.tensor(state, dtype=torch.float).to(self.device)).cpu().detach().numpy()
+        return (
+            actor(torch.tensor(state, dtype=torch.float).to(self.device))
+            .cpu()
+            .detach()
+            .numpy()
+        )
+
     def train(
         self,
         actor,
@@ -472,13 +557,13 @@ class DDPGTrainer(BaseTrainer):
         noise: BaseNoise,
         n_episodes: int,
         gamma: float,
-        tau = 0.005,
+        tau=0.005,
         max_steps: int = None,
     ) -> np.ndarray:
         tqdm_range = tqdm(range(n_episodes), total=n_episodes)
 
         scores = []
-        scores_window = deque(maxlen = 100)
+        scores_window = deque(maxlen=100)
         for episode in tqdm_range:
             state, _ = self.env.reset()
             noise.reset()
@@ -487,20 +572,22 @@ class DDPGTrainer(BaseTrainer):
             step = 0
             while True:
                 action = self.policy(actor, state)
-  
+
                 action = self.apply_noise(action, noise.sample())
 
-                next_state, reward, terminated, truncated, _ = self.env.step([action.item()])
+                next_state, reward, terminated, truncated, _ = self.env.step(
+                    [action.item()]
+                )
 
                 done = terminated or truncated
                 score += reward
 
-                self.memory.add( state, action, [reward], next_state, [done])
+                self.memory.add(state, action, [reward], next_state, [done])
 
                 if len(self.memory) >= self.memory.batch_size:
                     transitions = self.memory.sample()
-                    
-                    self._batch_train( 
+
+                    self._batch_train(
                         actor=actor,
                         critic=critic,
                         actor_target=actor_target,
@@ -509,7 +596,7 @@ class DDPGTrainer(BaseTrainer):
                         critic_optimizer=critic_optimizer,
                         criterion=criterion,
                         gamma=gamma,
-                        transitions=transitions
+                        transitions=transitions,
                     )
 
                 self._soft_update(actor_target, actor, tau)
@@ -521,13 +608,13 @@ class DDPGTrainer(BaseTrainer):
                     break
 
                 step += 1
-            
+
             scores.append(score)
-            scores_window.append(score)   
+            scores_window.append(score)
             tqdm_range.set_description(f"Score: {np.mean(scores_window):.3f}")
 
         return scores
-    
+
     def _batch_train(
         self,
         actor: torch.nn.Module,
@@ -541,19 +628,21 @@ class DDPGTrainer(BaseTrainer):
         transitions,
     ):
         states, actions, rewards, next_states, dones = map(list, zip(*transitions))
-        
+
         states = torch.tensor(np.array(states), dtype=torch.float).to(self.device)
         actions = torch.tensor(np.array(actions), dtype=torch.float).to(self.device)
-        next_states = torch.tensor(np.array(next_states), dtype=torch.float).to(self.device)
+        next_states = torch.tensor(np.array(next_states), dtype=torch.float).to(
+            self.device
+        )
         rewards = torch.tensor(rewards, dtype=torch.float).to(self.device)
         dones = torch.tensor(dones, dtype=torch.float).to(self.device)
-       
+
         critic_values = critic(states, actions)
 
         next_actions = actor_target(next_states)
         next_q_values = critic_target(next_states, next_actions.detach())
         y = rewards + gamma * (1 - dones) * next_q_values
-        
+
         critic_loss = criterion(y, critic_values)
 
         policy_loss = -critic(states, actor(states)).mean()
@@ -566,17 +655,20 @@ class DDPGTrainer(BaseTrainer):
         critic_loss.backward()
         critic_optimizer.step()
 
-        
-    def _soft_update(self, target: torch.nn.Module, source: torch.nn.Module, tau: float):
+    def _soft_update(
+        self, target: torch.nn.Module, source: torch.nn.Module, tau: float
+    ):
         target_weights = target.state_dict()
         source_weights = source.state_dict()
         for key in source_weights:
-            target_weights[key] = source_weights[key]*tau + target_weights[key]*(1-tau)
+            target_weights[key] = source_weights[key] * tau + target_weights[key] * (
+                1 - tau
+            )
         target.load_state_dict(target_weights)
 
 
 class VPGTrainer(BaseTrainer):
-    def __init__(self, env: BaseEnvironment, device = None) -> None:
+    def __init__(self, env: BaseEnvironment, device=None) -> None:
         super().__init__(env)
         self.device = device
         self.buffer = Buffer()
@@ -587,7 +679,7 @@ class VPGTrainer(BaseTrainer):
         dist = Categorical(probs)
         action = dist.sample()
         return action.cpu().detach().numpy()
-    
+
     def reward_to_go(self, rewards, dones, gamma=1.0, noralize=False):
         # https://subscription.packtpub.com/book/data/9781789533583/1/ch01lvl1sec05/identifying-reward-functions-and-the-concept-of-discounted-rewards
         # https://medium.com/iecse-hashtag/rl-part-2-returns-policy-and-value-functions-33311f16197
@@ -604,7 +696,9 @@ class VPGTrainer(BaseTrainer):
         # rewards_to_go = np.array([np.sum(rewards[i:]*(1 - dones[i:])*(gamma**np.array(range(0, len(rewards)-i)))) for i in range(len(rewards))])
 
         if noralize:
-            rewards_to_go = (rewards_to_go - np.mean(rewards_to_go)) / (np.std(rewards_to_go) + 1e-9)
+            rewards_to_go = (rewards_to_go - np.mean(rewards_to_go)) / (
+                np.std(rewards_to_go) + 1e-9
+            )
 
         return rewards_to_go
 
@@ -616,13 +710,12 @@ class VPGTrainer(BaseTrainer):
         batch_size: int,
         gamma: float = 0.99,
         max_steps: int = None,
-        
     ):
         tqdm_range = tqdm(range(n_episodes), total=n_episodes)
 
         self.batch_buffer.reset()
         scores = []
-        scores_window = deque(maxlen = 100)
+        scores_window = deque(maxlen=100)
         for episode in tqdm_range:
             state, _ = self.env.reset()
             self.buffer.reset()
@@ -631,12 +724,14 @@ class VPGTrainer(BaseTrainer):
             step = 0
             while True:
                 action = self.policy(actor, state)
-                next_state, reward, terminated, truncated, _ = self.env.step(action.item())
+                next_state, reward, terminated, truncated, _ = self.env.step(
+                    action.item()
+                )
 
                 done = terminated or truncated
 
-                self.buffer.add(state, action, reward, done)      
-                          
+                self.buffer.add(state, action, reward, done)
+
                 score += reward
 
                 state = next_state
@@ -654,12 +749,23 @@ class VPGTrainer(BaseTrainer):
 
                         batch_states, batch_actions, batch_rewards_to_go = batch_cache
 
-                        batch_states = torch.tensor(np.array(batch_states), dtype=torch.float).to(self.device)
-                        batch_actions = torch.tensor(np.array(batch_actions), dtype=torch.int64).to(self.device)
-                        batch_rewards_to_go = torch.tensor(np.array(batch_rewards_to_go), dtype=torch.float).to(self.device)
+                        batch_states = torch.tensor(
+                            np.array(batch_states), dtype=torch.float
+                        ).to(self.device)
+                        batch_actions = torch.tensor(
+                            np.array(batch_actions), dtype=torch.int64
+                        ).to(self.device)
+                        batch_rewards_to_go = torch.tensor(
+                            np.array(batch_rewards_to_go), dtype=torch.float
+                        ).to(self.device)
 
                         logprobs = torch.log(actor(batch_states))
-                        actions_logprobs = batch_rewards_to_go * torch.gather(logprobs, 1, batch_actions.unsqueeze(1)).squeeze() # or logprob[torch.arange(len(logprob)), batch_actions].squeeze()
+                        actions_logprobs = (
+                            batch_rewards_to_go
+                            * torch.gather(
+                                logprobs, 1, batch_actions.unsqueeze(1)
+                            ).squeeze()
+                        )  # or logprob[torch.arange(len(logprob)), batch_actions].squeeze()
 
                         loss = -actions_logprobs.mean()
 
@@ -670,22 +776,18 @@ class VPGTrainer(BaseTrainer):
                         self.batch_buffer.reset()
 
                     break
-                       
-                  
 
                 step += 1
-            
+
             scores.append(score)
-            scores_window.append(score)   
+            scores_window.append(score)
             tqdm_range.set_description(f"Score: {np.mean(scores_window):.3f}")
 
-
         return scores
-    
 
 
 class A2CTrainer(BaseTrainer):
-    def __init__(self, env: BaseEnvironment, device = None) -> None:
+    def __init__(self, env: BaseEnvironment, device=None) -> None:
         super().__init__(env)
         self.device = device
         self.buffer = Buffer()
@@ -703,7 +805,7 @@ class A2CTrainer(BaseTrainer):
         entropy = dist.entropy().mean()
 
         return action.cpu().detach().numpy(), value.cpu().detach().numpy()
-    
+
     def reward_to_go(self, rewards, dones, gamma=1.0, noralize=False):
         # https://subscription.packtpub.com/book/data/9781789533583/1/ch01lvl1sec05/identifying-reward-functions-and-the-concept-of-discounted-rewards
         # https://medium.com/iecse-hashtag/rl-part-2-returns-policy-and-value-functions-33311f16197
@@ -714,10 +816,11 @@ class A2CTrainer(BaseTrainer):
             rewards_to_go.insert(0, cumulative_reward)
 
         if noralize:
-            rewards_to_go = (rewards_to_go - np.mean(rewards_to_go)) / (np.std(rewards_to_go) + 1e-9)
+            rewards_to_go = (rewards_to_go - np.mean(rewards_to_go)) / (
+                np.std(rewards_to_go) + 1e-9
+            )
 
         return rewards_to_go
-
 
     def train(
         self,
@@ -732,13 +835,12 @@ class A2CTrainer(BaseTrainer):
         value_coeff: float = 0.5,
         entropy_coeff: float = 0.01,
         max_steps: int = None,
-        
     ):
         tqdm_range = tqdm(range(n_episodes), total=n_episodes)
 
         self.batch_buffer.reset()
         scores = []
-        scores_window = deque(maxlen = 100)
+        scores_window = deque(maxlen=100)
         for episode in tqdm_range:
             state, _ = self.env.reset()
             self.buffer.reset()
@@ -747,7 +849,9 @@ class A2CTrainer(BaseTrainer):
             step = 0
             while True:
                 action, value = self.policy(actor, critic, state)
-                next_state, reward, terminated, truncated, _ = self.env.step(action.item())
+                next_state, reward, terminated, truncated, _ = self.env.step(
+                    action.item()
+                )
 
                 done = terminated or truncated
 
@@ -768,27 +872,50 @@ class A2CTrainer(BaseTrainer):
                     if len(self.batch_buffer) >= batch_size:
                         batch_cache = self.batch_buffer.take()
 
-                        batch_states, batch_actions, batch_values, batch_rewards_to_go = batch_cache
+                        (
+                            batch_states,
+                            batch_actions,
+                            batch_values,
+                            batch_rewards_to_go,
+                        ) = batch_cache
 
-                        batch_states = torch.tensor(np.array(batch_states), dtype=torch.float).to(self.device)
-                        batch_actions = torch.tensor(np.array(batch_actions), dtype=torch.int64).to(self.device)
-                        batch_values = torch.tensor(np.array(batch_values), dtype=torch.float).to(self.device)
-                        batch_rewards_to_go = torch.tensor(np.array(batch_rewards_to_go), dtype=torch.float).to(self.device)
-                      
+                        batch_states = torch.tensor(
+                            np.array(batch_states), dtype=torch.float
+                        ).to(self.device)
+                        batch_actions = torch.tensor(
+                            np.array(batch_actions), dtype=torch.int64
+                        ).to(self.device)
+                        batch_values = torch.tensor(
+                            np.array(batch_values), dtype=torch.float
+                        ).to(self.device)
+                        batch_rewards_to_go = torch.tensor(
+                            np.array(batch_rewards_to_go), dtype=torch.float
+                        ).to(self.device)
+
                         probs = actor(batch_states)
                         dist = Categorical(probs)
                         entropy = dist.entropy().mean()
 
-
                         advantages = batch_rewards_to_go - batch_values.squeeze()
-                        
+
                         logprobs = torch.log(actor(batch_states))
-                        actions_logprobs = advantages * torch.gather(logprobs, 1, batch_actions.unsqueeze(1)).squeeze() # or logprob[torch.arange(len(logprob)), batch_actions].squeeze()
+                        actions_logprobs = (
+                            advantages
+                            * torch.gather(
+                                logprobs, 1, batch_actions.unsqueeze(1)
+                            ).squeeze()
+                        )  # or logprob[torch.arange(len(logprob)), batch_actions].squeeze()
                         actor_loss = -actions_logprobs.mean()
 
-                        critic_loss = criterion(critic(batch_states).squeeze(), batch_rewards_to_go)
+                        critic_loss = criterion(
+                            critic(batch_states).squeeze(), batch_rewards_to_go
+                        )
 
-                        loss = actor_loss + value_coeff * critic_loss - entropy_coeff * entropy
+                        loss = (
+                            actor_loss
+                            + value_coeff * critic_loss
+                            - entropy_coeff * entropy
+                        )
 
                         actor_optimizer.zero_grad()
                         critic_optimizer.zero_grad()
@@ -807,7 +934,8 @@ class A2CTrainer(BaseTrainer):
             tqdm_range.set_description(f"Score: {np.mean(scores_window)}")
 
         return scores
-    
+
+
 class PPOTrainer(BaseTrainer):
     def __init__(self, env: BaseEnvironment, device=None) -> None:
         super().__init__(env)
@@ -824,8 +952,12 @@ class PPOTrainer(BaseTrainer):
 
         value = critic(state)
 
-        return action.cpu().detach().numpy(), value.cpu().detach().numpy(), dist.log_prob(action).cpu().detach().numpy() # The same as torch.log(probs)
-    
+        return (
+            action.cpu().detach().numpy(),
+            value.cpu().detach().numpy(),
+            dist.log_prob(action).cpu().detach().numpy(),
+        )  # The same as torch.log(probs)
+
     def reward_to_go(self, rewards, dones, gamma=1.0, normalize=False):
         rewards_to_go = []
         cumulative_reward = 0
@@ -834,7 +966,9 @@ class PPOTrainer(BaseTrainer):
             rewards_to_go.insert(0, cumulative_reward)
 
         if normalize:
-            rewards_to_go = (rewards_to_go - np.mean(rewards_to_go)) / (np.std(rewards_to_go) + 1e-9)
+            rewards_to_go = (rewards_to_go - np.mean(rewards_to_go)) / (
+                np.std(rewards_to_go) + 1e-9
+            )
 
         return rewards_to_go
 
@@ -851,7 +985,7 @@ class PPOTrainer(BaseTrainer):
         gamma: float = 0.99,
         value_coeff: float = 0.5,
         entropy_coeff: float = 0.01,
-        clip_param: float = 0.2, 
+        clip_param: float = 0.2,
         max_steps: int = None,
     ):
         tqdm_range = tqdm(range(n_episodes), total=n_episodes)
@@ -867,7 +1001,9 @@ class PPOTrainer(BaseTrainer):
             step = 0
             while True:
                 action, value, log_prob = self.policy(actor, critic, state)
-                next_state, reward, terminated, truncated, _ = self.env.step(action.item())
+                next_state, reward, terminated, truncated, _ = self.env.step(
+                    action.item()
+                )
 
                 done = terminated or truncated
 
@@ -879,39 +1015,70 @@ class PPOTrainer(BaseTrainer):
 
                 if done or step == max_steps:
                     cache = self.buffer.take()
-                    states, actions, values, rewards, dones, log_probs = map(np.array, zip(*cache))
+                    states, actions, values, rewards, dones, log_probs = map(
+                        np.array, zip(*cache)
+                    )
 
                     rewards_to_go = self.reward_to_go(rewards, dones, gamma)
 
-                    self.batch_buffer.extend(states, actions, values, rewards_to_go, log_probs)
+                    self.batch_buffer.extend(
+                        states, actions, values, rewards_to_go, log_probs
+                    )
 
                     if len(self.batch_buffer) >= batch_size:
                         batch_cache = self.batch_buffer.take()
-                        
-                        batch_states, batch_actions, batch_values, batch_rewards_to_go, batch_old_log_probs = batch_cache
 
-                        batch_states = torch.tensor(np.array(batch_states), dtype=torch.float).to(self.device)
-                        batch_actions = torch.tensor(np.array(batch_actions), dtype=torch.int64).to(self.device)
-                        batch_values = torch.tensor(np.array(batch_values), dtype=torch.float).to(self.device)
-                        batch_rewards_to_go = torch.tensor(np.array(batch_rewards_to_go), dtype=torch.float).to(self.device)
-                        batch_old_log_probs = torch.tensor(np.array(batch_old_log_probs), dtype=torch.float).to(self.device)
+                        (
+                            batch_states,
+                            batch_actions,
+                            batch_values,
+                            batch_rewards_to_go,
+                            batch_old_log_probs,
+                        ) = batch_cache
+
+                        batch_states = torch.tensor(
+                            np.array(batch_states), dtype=torch.float
+                        ).to(self.device)
+                        batch_actions = torch.tensor(
+                            np.array(batch_actions), dtype=torch.int64
+                        ).to(self.device)
+                        batch_values = torch.tensor(
+                            np.array(batch_values), dtype=torch.float
+                        ).to(self.device)
+                        batch_rewards_to_go = torch.tensor(
+                            np.array(batch_rewards_to_go), dtype=torch.float
+                        ).to(self.device)
+                        batch_old_log_probs = torch.tensor(
+                            np.array(batch_old_log_probs), dtype=torch.float
+                        ).to(self.device)
 
                         advantages = batch_rewards_to_go - batch_values.squeeze()
 
                         for _ in range(ppo_epochs):
                             probs = actor(batch_states)
                             dist = Categorical(probs)
-                            new_log_probs = dist.log_prob(batch_actions) # The same as torch.log(probs)
+                            new_log_probs = dist.log_prob(
+                                batch_actions
+                            )  # The same as torch.log(probs)
                             entropy = dist.entropy().mean()
 
                             ratio = torch.exp(new_log_probs - batch_old_log_probs)
                             surr1 = ratio * advantages
-                            surr2 = torch.clamp(ratio, 1.0 - clip_param, 1.0 + clip_param) * advantages
+                            surr2 = (
+                                torch.clamp(ratio, 1.0 - clip_param, 1.0 + clip_param)
+                                * advantages
+                            )
                             actor_loss = -torch.min(surr1, surr2).mean()
 
-                            critic_loss = criterion(critic(batch_states).squeeze(), batch_rewards_to_go)
+                            critic_loss = criterion(
+                                critic(batch_states).squeeze(), batch_rewards_to_go
+                            )
 
-                            loss = actor_loss + value_coeff * critic_loss - entropy_coeff * entropy
+                            loss = (
+                                actor_loss
+                                + value_coeff * critic_loss
+                                - entropy_coeff * entropy
+                            )
 
                             actor_optimizer.zero_grad()
                             critic_optimizer.zero_grad()
