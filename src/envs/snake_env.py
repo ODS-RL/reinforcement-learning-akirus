@@ -27,7 +27,9 @@ class SnakeState:
 
 
 class SnakeGameEnvironment(BaseEnvironment):
-    def __init__(self, width, height, block_size, speed, max_steps=200):
+    def __init__(
+        self, width, height, block_size, speed, render_score=True, max_steps=200
+    ):
         pygame.init()
         self.width = width
         self.height = height
@@ -66,6 +68,7 @@ class SnakeGameEnvironment(BaseEnvironment):
         self._state.direction = random.choice(self.directions)  # type: ignore
 
         self.reward = {"collision": -10, "food": 10}
+        self.render_score = render_score
         self.max_steps = int(
             np.ceil(width * height * np.sqrt(2)).round()
         )  # TODO: use wrapper
@@ -327,10 +330,11 @@ class SnakeGameEnvironment(BaseEnvironment):
                 [segment[0], segment[1], self.block_size, self.block_size],
             )
 
-        value = self.font.render(
-            "Score: " + str(self._state.score), True, self.colors["navy"]
-        )
-        self.screen.blit(value, [0, 0])
+        if self.render_score:
+            value = self.font.render(
+                "Score: " + str(self._state.score), True, self.colors["navy"]
+            )
+            self.screen.blit(value, [0, 0])
         pygame.display.flip()
 
         if save_path is not None:
