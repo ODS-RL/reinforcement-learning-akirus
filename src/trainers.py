@@ -1,11 +1,23 @@
+from collections import deque
+from copy import deepcopy
+from math import ceil, log10
+from os import makedirs, path as osp
+
 import numpy as np
 import torch
+
 from torch.distributions.categorical import Categorical
-from collections import deque
-from tqdm import tqdm
+from tqdm import tqdm, trange
+
+try:
+    from moviepy import ImageSequenceClip
+except ImportError:
+    ImageSequenceClip = None
+
 from src.envs.base_env import BaseEnvironment
 from src.noise import BaseNoise
 from src.buffers import ReplayMemory, Buffer, ExtendableBuffer
+from src.utils import merge_frame_sequences
 
 # https://arxiv.org/pdf/1312.5602.pdf
 # https://arxiv.org/pdf/1509.02971.pdf
@@ -1095,5 +1107,297 @@ class PPOTrainer(BaseTrainer):
             scores_window.append(score)
             scores.append(score)
             tqdm_range.set_description(f"Score: {np.mean(scores_window)}")
+
+        return scores
+
+
+class GRPOTrainer(BaseTrainer):
+    def __init__(
+        self,
+        env: BaseEnvironment,
+        device=None,
+        path_clips=None,
+        render_epochs=None,
+        render_limit=None,
+    ) -> None:
+        super().__init__(env)
+        self.device = device
+        self.reference_policy = None
+        self.old_policy = None
+        self.path_clips = path_clips
+        if self.path_clips is not None:
+            makedirs(path_clips, exist_ok=True)  # type: ignore
+        # WARNING: rendering epochs may consume a lot of RAM
+        self.render_epochs = (
+            render_epochs if isinstance(render_epochs, (dict, list, set, tuple)) else []
+        )
+        self.render_limit = render_limit
+
+    def compute_group_advantages(self, rewards, gamma=0.9, epsilon=1e-8):
+        """Calculate group-relative advantages using reward statistics"""
+        # 1. Calculate returns in a vectorized manner
+        discounts = [gamma ** np.arange(len(r)) for r in rewards]
+        try:
+            # Returns (state values)
+            returns = [
+                (np.flip(np.cumsum(np.flip(r * d))) / d)
+                for r, d in zip(rewards, discounts)
+            ]
+        except:
+            # FIXME: debug section (remove)
+            raise
+        # 2. Calculate advantages based on the returns
+        # Step 1: pad trajectories with NaNs
+        returns_pad = []
+        try:
+            max_len = max(map(lambda r: r.size, returns))
+            for r in returns:
+                returns_pad.append(
+                    np.pad(r, (0, max_len - r.size), constant_values=np.nan)
+                )
+            returns_matrix = np.array(returns_pad)
+        except (ValueError, TypeError):
+            # FIXME: debug section (remove)
+            raise
+        # Step 2: compute group mean and std
+        group_mean = np.nanmean(returns_matrix, axis=1)
+        group_std = np.nanstd(returns_matrix, axis=1, ddof=1) + epsilon
+        # Step 3: compute z-scores
+        normalized_matrix = (returns_matrix - group_mean[:, None]) / group_std[:, None]
+        # Step 4: extract advantages
+        # print(f"DEBUG: normalized matrix shape = {normalized_matrix.shape}")
+        return [n[: len(r)].tolist() for n, r in zip(normalized_matrix, returns)]
+
+    def compute_kl(self, current_probs, reference_probs, epsilon=1e-10):
+        result = None
+        try:
+            result = (
+                reference_probs * torch.log(reference_probs + epsilon)
+                - reference_probs * torch.log(current_probs + epsilon)
+            ).sum(dim=-1)
+        except RuntimeError:
+            # FIXME: debug section (remove)
+            raise
+        return result
+
+    def train(
+        self,
+        actor: torch.nn.Module,
+        actor_optimizer: torch.optim.Optimizer,
+        n_epochs: int,
+        n_steps: int,
+        group_size: int = 8,
+        kl_coeff: float = 0.2,
+        entropy_coeff: float = 0.01,
+        gamma: float = 0.9,
+    ):
+        # Initialize reference policy (updated every epoch)
+        self.reference_policy = deepcopy(actor.cpu()).to(self.device)
+        self.old_policy = deepcopy(actor.cpu()).to(self.device)
+
+        scores = []
+        scores_window = deque(maxlen=100)
+        digits = ceil(log10(n_epochs + 1))
+
+        try:
+            render_epochs = [
+                n_epochs + int(e) if int(e) < 0 else int(e) for e in self.render_epochs
+            ]
+        except TypeError:
+            print(
+                f"ERROR: failed to parse {self.render_epochs}, fallback to empty list!"
+            )
+            render_epochs = []
+
+        for epoch in range(n_epochs):
+            # Gather frames for visualization
+            render_epoch = epoch in render_epochs
+            frames_epoch = []
+            # Update reference policy at start of each epoch
+            self.reference_policy.load_state_dict(actor.state_dict())
+
+            epoch_iterator = trange(
+                n_steps,
+                desc=f"[{epoch + 1:{digits}d}/{n_epochs}] Group Reward = None",
+            )
+            # Steps per epoch. Start each epoch in the initial state.
+            # Each epoch may be as long as it might require an agent to
+            # finish an episode. This is the Main Trajectory
+            state, _ = self.env.reset()  # initial state
+            freeze_state = self.env.dump()  # save the Main Trajectory state
+            for step in epoch_iterator:
+                # Gather frames for visualization
+                frames_group = []
+                # Collect group of trajectories with old policy
+                group_states = []
+                group_actions = []
+                group_rewards = []
+                group_probs_old = []
+
+                # Generate multiple trajectories from the same specific state
+                # (spin-off from the latest Main Trajectory state).
+                # This is the group of trajectories for advantage averaging
+                for _ in range(group_size):
+                    # Gather frames for visualization
+                    frames_trajectory = []
+                    (
+                        trajectory_states,
+                        trajectory_actions,
+                        trajectory_rewards,
+                        trajectory_probs_old,
+                    ) = ([], [], [], [])
+                    current_state, _ = self.env.reset(freeze_state)  # state.copy()
+                    done = False
+
+                    while not done:
+                        # Run until the end of the current episode
+                        # (spin-off trajectory)
+                        with torch.no_grad():
+                            state_tensor = torch.tensor(
+                                current_state, dtype=torch.float
+                            ).to(self.device)
+                            old_dist = Categorical(self.old_policy(state_tensor))
+                            action = old_dist.sample()
+                            prob_old = old_dist.log_prob(action).item()
+                            action = action.item()
+
+                        next_state, reward, terminated, truncated, info = self.env.step(
+                            action  # type: ignore
+                        )
+                        done = terminated or truncated
+
+                        trajectory_states.append(current_state)
+                        trajectory_actions.append(action)
+                        trajectory_rewards.append(reward)
+                        trajectory_probs_old.append(prob_old)
+
+                        current_state = next_state
+                        if render_epoch:
+                            frames_trajectory.append(info.get("frame", None))
+
+                    # Store spin-off trajectory data to the group
+                    group_states.append(trajectory_states)
+                    group_actions.append(trajectory_actions)
+                    group_rewards.append(trajectory_rewards)
+                    group_probs_old.append(trajectory_probs_old)
+
+                    if render_epoch:
+                        frames_group.append(frames_trajectory)
+
+                # Compute group-relative advantages
+                group_advantages = self.compute_group_advantages(group_rewards, gamma)
+
+                # Merge group frames -> list of [N, W, H, C] ndarrays.
+                # Let's render N parallel spin-off trajectories on a single
+                # frame per step. Since all trajectories of different lengths
+                # and some frames may be none - pad them with the last valid
+                if render_epoch:
+                    frames_epoch.append(
+                        merge_frame_sequences(
+                            sorted(frames_group, key=len)[-4:], limit=self.render_limit
+                        )
+                    )  # take 4 longest trajectories
+
+                # GRPO optimization loop (depends on the group size):
+                # since the group contains trajectories of different sizes,
+                # iterate over the group and optimize on each trajectory
+                # TODO: detach optimization steps from group size -> grpo_steps
+                for s, a, p, v in zip(
+                    group_states, group_actions, group_probs_old, group_advantages
+                ):
+                    states_tensor = torch.tensor(
+                        s, dtype=torch.float, device=self.device
+                    )
+                    actions_tensor = torch.tensor(
+                        a, dtype=torch.float, device=self.device
+                    )
+                    old_log_probs_tensor = torch.tensor(
+                        p, dtype=torch.float, device=self.device
+                    )
+                    advantages_tensor = torch.tensor(
+                        v, dtype=torch.float, device=self.device
+                    )
+                    # Get current policy probabilities
+                    current_probs = actor(states_tensor)
+                    current_dist = Categorical(current_probs)
+                    current_log_probs = current_dist.log_prob(actions_tensor)
+
+                    # Importance ratio
+                    ratio = torch.exp(current_log_probs - old_log_probs_tensor)
+
+                    # Compute KL divergence with reference policy
+                    with torch.no_grad():
+                        reference_probs = self.reference_policy(states_tensor)
+                    kl_penalty = self.compute_kl(current_probs, reference_probs)
+
+                    # GRPO objective components
+                    try:
+                        policy_loss = -(ratio * advantages_tensor).mean()
+                    except RuntimeError:
+                        # FIXME: debug section (remove)
+                        raise
+                    kl_loss = kl_coeff * kl_penalty.mean()
+                    entropy_loss = -entropy_coeff * current_dist.entropy().mean()
+
+                    # Total loss
+                    total_loss = policy_loss + kl_loss + entropy_loss
+
+                    # Optimization step
+                    actor_optimizer.zero_grad()
+                    total_loss.backward()
+                    actor_optimizer.step()
+
+                # Update scores
+                try:
+                    avg_reward = np.mean([sum(r) for r in group_rewards])
+                except AttributeError:
+                    from pprint import pprint
+
+                    pprint(group_rewards)
+                    raise
+                scores_window.append(avg_reward)
+                scores.append(avg_reward)
+                epoch_iterator.set_description(
+                    f"[{epoch + 1:{digits}d}/{n_epochs}]"
+                    f" Group Reward = {np.mean(scores_window):.2f}"
+                )
+
+                # Do epic step
+                with torch.no_grad():
+                    action = actor(
+                        torch.tensor(state, dtype=torch.float, device=self.device)
+                    ).argmax()
+                    self.old_policy.load_state_dict(actor.state_dict())
+                # Revert envoronment into the Main Trajectory
+                state, _ = self.env.reset(
+                    freeze_state
+                )  # FIXME: previous version worked without it
+                state, reward, terminated, truncated, info = self.env.step(action)
+                if terminated or truncated:
+                    print(f"DEBUG: reset occurs on {truncated, terminated}!")
+                    state, _ = self.env.reset()  # initial state
+                freeze_state = self.env.dump()
+                frame = info.get("frame", None)
+                if render_epoch and frame is not None:
+                    frames_epoch[-1] = np.vstack(
+                        (frames_epoch[-1], frame[np.newaxis, ...])
+                    )
+                elif render_epoch and frame is None:
+                    print(f"DEBUG: failed to get a frame from step = {step}")
+                    frames_epoch[-1] = np.vstack(
+                        (frames_epoch[-1], frames_epoch[-1][-1:])
+                    )
+
+            # Render each epoch separately (reduce memory usage)
+            if render_epoch:
+                frames_epoch = np.concatenate(frames_epoch, axis=0)
+                if (
+                    ImageSequenceClip is not None
+                    and self.path_clips is not None
+                    and osp.isdir(self.path_clips)
+                ):
+                    clip = ImageSequenceClip([s for s in frames_epoch], fps=10)
+                    filename = osp.join(self.path_clips, f"grpo-{epoch:06d}.mp4")
+                    clip.write_videofile(filename, codec="libx264")
 
         return scores
