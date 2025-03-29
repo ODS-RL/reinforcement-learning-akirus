@@ -1,6 +1,6 @@
 # Reinforcement Learning
 
-![Alternative text](images/snake-dqn-render.gif)
+![Snake DQN example](images/snake-dqn-render.gif)
 
 
 ## Description
@@ -15,6 +15,6 @@ This is an implementation of the RL algorithms in Python.
 6. Vanilla Policy Gradient (VPG)
 7. Advantage Actor Critic (A2C)
 8. Proximal Policy Optimization (PPO)
+9. Group-Relative Policy Optimization (GRPO) - experimental
 
 Check out the *[examples](/examples)* folder for training demonstrations.
-
